@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     } = body;
 
     // Vérifier si l'email existe déjà
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await prisma?.user.findUnique({
       where: {
         email,
       },
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
 
     // Vérifier si le numéro de téléphone existe déjà (s'il est fourni)
     if (phoneNumber) {
-      const existingPhoneUser = await prisma.user.findUnique({
+      const existingPhoneUser = await prisma?.user.findUnique({
         where: {
           phoneNumber,
         },
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     const hashedPassword = await hash(password, 10);
 
     // Créer l'utilisateur
-    const user = await prisma.user.create({
+    const user = await prisma?.user.create({
       data: {
         firstName,
         lastName,
@@ -77,9 +77,9 @@ export async function POST(req: Request) {
       {
         message: "Utilisateur créé avec succès",
         user: {
-          id: user.id,
-          email: user.email,
-          role: user.role,
+          id: user?.id,
+          email: user?.email,
+          role: user?.role,
         },
       },
       { status: 201 }

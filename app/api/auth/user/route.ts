@@ -11,7 +11,7 @@ export async function GET() {
       return NextResponse.json({ user: null });
     }
 
-    const user = await prisma.user.findUnique({
+    const user = await prisma?.user.findUnique({
       where: {
         id: session.user.id,
       },

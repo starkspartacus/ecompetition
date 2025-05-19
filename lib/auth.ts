@@ -4,9 +4,9 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import { compare } from "bcrypt";
 import prisma from "@/lib/prisma";
-
+import { PrismaClient } from "@prisma/client";
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+  adapter: PrismaAdapter(prisma as PrismaClient),
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 jours
@@ -19,54 +19,47 @@ export const authOptions: NextAuthOptions = {
   },
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      clientId: process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
     }),
     CredentialsProvider({
       name: "credentials",
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        phoneNumber: { label: "Phone Number", type: "text" },
       },
       async authorize(credentials) {
         try {
-          console.log(
-            "Authorize function called with email:",
-            credentials?.email
-          );
-
-          if (!credentials?.email || !credentials?.password) {
-            console.log("Missing credentials");
-            throw new Error("Email et mot de passe requis");
+          if (!credentials?.email && !credentials?.phoneNumber) {
+            throw new Error("Email ou numéro de téléphone requis");
           }
 
-          const user = await prisma.user.findUnique({
-            where: {
-              email: credentials.email,
-            },
-          });
+          if (!credentials?.password) {
+            throw new Error("Mot de passe requis");
+          }
 
-          console.log("User found:", user ? "Yes" : "No");
+          // Recherche par email ou par numéro de téléphone
+          const user = credentials.email
+            ? await prisma?.user.findUnique({
+                where: { email: credentials.email },
+              })
+            : await prisma?.user.findFirst({
+                where: { phoneNumber: credentials.phoneNumber },
+              });
 
           if (!user || !user.password) {
-            console.log("User not found or no password");
             throw new Error("Utilisateur non trouvé");
           }
-
-          console.log("User role:", user.role);
 
           const isPasswordValid = await compare(
             credentials.password,
             user.password
           );
-          console.log("Password valid:", isPasswordValid ? "Yes" : "No");
 
           if (!isPasswordValid) {
-            console.log("Invalid password");
             throw new Error("Mot de passe incorrect");
           }
-
-          console.log("Authentication successful");
 
           // Retourner uniquement les champs nécessaires
           return {
@@ -85,14 +78,12 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        console.log("JWT callback - user:", user.email, "role:", user.role);
         token.id = user.id;
         token.role = user.role;
       }
       return token;
     },
     async session({ session, token }) {
-      console.log("Session callback - token:", token.email);
       if (token && session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
@@ -100,15 +91,11 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // Permet de gérer les redirections personnalisées
-      // Si l'URL est relative, on la combine avec l'URL de base
       if (url.startsWith("/")) return `${baseUrl}${url}`;
-      // Si l'URL est sur le même domaine, on la retourne
       else if (new URL(url).origin === baseUrl) return url;
-      // Sinon, on retourne à l'URL de base
       return baseUrl;
     },
   },
-  debug: true,
+  debug: process.env.NODE_ENV === "development",
   secret: process.env.NEXTAUTH_SECRET,
 };

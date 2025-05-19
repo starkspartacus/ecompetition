@@ -3,57 +3,62 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 export async function middleware(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  try {
+    const token = await getToken({
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET,
+    });
 
-  // Si l'utilisateur n'est pas connecté et essaie d'accéder à une route protégée
-  if (
-    !token &&
-    !request.nextUrl.pathname.startsWith("/signin") &&
-    !request.nextUrl.pathname.startsWith("/signup") &&
-    !request.nextUrl.pathname.startsWith("/api") &&
-    request.nextUrl.pathname !== "/"
-  ) {
-    return NextResponse.redirect(new URL("/signin", request.url));
-  }
-
-  // Si l'utilisateur est connecté et essaie d'accéder à la page de connexion ou d'inscription
-  if (
-    token &&
-    (request.nextUrl.pathname.startsWith("/signin") ||
-      request.nextUrl.pathname.startsWith("/signup"))
-  ) {
-    // Rediriger vers le tableau de bord approprié en fonction du rôle
-    if (token.role === "ORGANIZER") {
-      return NextResponse.redirect(
-        new URL("/organizer/dashboard", request.url)
-      );
-    } else {
-      return NextResponse.redirect(
-        new URL("/participant/dashboard", request.url)
-      );
-    }
-  }
-
-  // Vérifier les accès spécifiques aux rôles
-  if (token) {
-    // Routes uniquement pour les organisateurs
+    // Si l'utilisateur n'est pas connecté et essaie d'accéder à une route protégée
     if (
-      request.nextUrl.pathname.startsWith("/organizer") &&
-      token.role !== "ORGANIZER"
+      !token &&
+      !request.nextUrl.pathname.startsWith("/signin") &&
+      !request.nextUrl.pathname.startsWith("/signup") &&
+      !request.nextUrl.pathname.startsWith("/api") &&
+      request.nextUrl.pathname !== "/"
     ) {
-      return NextResponse.redirect(new URL("/", request.url));
+      return NextResponse.redirect(new URL("/signin", request.url));
     }
 
-    // Routes uniquement pour les participants
+    // Si l'utilisateur est connecté et essaie d'accéder à la page de connexion ou d'inscription
     if (
-      request.nextUrl.pathname.startsWith("/participant") &&
-      token.role !== "PARTICIPANT"
+      token &&
+      (request.nextUrl.pathname.startsWith("/signin") ||
+        request.nextUrl.pathname.startsWith("/signup"))
     ) {
-      return NextResponse.redirect(new URL("/", request.url));
+      // Rediriger vers le tableau de bord approprié en fonction du rôle
+      if (token.role === "ORGANIZER") {
+        return NextResponse.redirect(
+          new URL("/organizer/dashboard", request.url)
+        );
+      } else {
+        return NextResponse.redirect(
+          new URL("/participant/dashboard", request.url)
+        );
+      }
     }
+
+    // Vérifier les accès spécifiques aux rôles
+    if (token) {
+      // Routes uniquement pour les organisateurs
+      if (
+        request.nextUrl.pathname.startsWith("/organizer") &&
+        token.role !== "ORGANIZER"
+      ) {
+        return NextResponse.redirect(new URL("/", request.url));
+      }
+
+      // Routes uniquement pour les participants
+      if (
+        request.nextUrl.pathname.startsWith("/participant") &&
+        token.role !== "PARTICIPANT"
+      ) {
+        return NextResponse.redirect(new URL("/", request.url));
+      }
+    }
+  } catch (error) {
+    console.error("Middleware error:", error);
+    // En cas d'erreur, on continue la navigation
   }
 
   return NextResponse.next();

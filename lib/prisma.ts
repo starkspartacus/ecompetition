@@ -6,7 +6,7 @@ declare global {
 }
 
 // Création d'une instance PrismaClient standard
-let prisma: PrismaClient;
+let prisma: PrismaClient | undefined;
 
 if (process.env.NODE_ENV === "production") {
   prisma = new PrismaClient();
@@ -19,7 +19,7 @@ if (process.env.NODE_ENV === "production") {
           : ["error"],
     });
   }
-  prisma = global.prisma;
+  prisma = global.prisma as PrismaClient;
 }
 
 export default prisma;

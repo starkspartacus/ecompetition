@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     const uniqueCode = nanoid(8).toUpperCase();
 
     // Créer la compétition
-    const competition = await prisma.competition.create({
+    const competition = await prisma?.competition.create({
       data: {
         title,
         address,
@@ -84,7 +84,7 @@ export async function GET(req: Request) {
 
     if (code) {
       // Rechercher une compétition par code
-      const competition = await prisma.competition.findUnique({
+      const competition = await prisma?.competition.findUnique({
         where: {
           uniqueCode: code,
         },
@@ -110,7 +110,7 @@ export async function GET(req: Request) {
 
     if (session.user.role === "ORGANIZER") {
       // Récupérer les compétitions de l'organisateur
-      competitions = await prisma.competition.findMany({
+      competitions = await prisma?.competition.findMany({
         where: {
           organizerId: session.user.id,
         },
@@ -124,7 +124,7 @@ export async function GET(req: Request) {
       });
     } else {
       // Récupérer les compétitions auxquelles le participant est inscrit
-      const participations = await prisma.participation.findMany({
+      const participations = await prisma?.participation.findMany({
         where: {
           participantId: session.user.id,
         },
@@ -133,7 +133,7 @@ export async function GET(req: Request) {
         },
       });
 
-      competitions = participations.map((p) => p.competition);
+      competitions = participations?.map((p) => p.competition);
     }
 
     return NextResponse.json({ competitions });

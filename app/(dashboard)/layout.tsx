@@ -1,23 +1,44 @@
+"use client";
+
 import type React from "react";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { DashboardNav } from "@/components/dashboard-nav";
 
-export default async function DashboardLayout({
+export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession(authOptions);
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
 
-  if (!session) {
-    redirect("/signin");
+  useEffect(() => {
+    // Ne rien faire si le statut est toujours en chargement
+    if (status === "loading") return;
+
+    // Rediriger si pas de session
+    if (status === "unauthenticated") {
+      router.push("/signin");
+    } else {
+      setIsLoading(false);
+    }
+  }, [status, router]); // Dépendances minimales
+
+  if (isLoading && status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
   }
 
   return (
     <div className="flex min-h-screen flex-col">
-      <DashboardNav user={session.user} />
+      {session?.user && <DashboardNav user={session.user} />}
       <div className="flex-1 p-8">{children}</div>
     </div>
   );

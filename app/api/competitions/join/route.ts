@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     const { competitionId } = body;
 
     // Vérifier si la compétition existe
-    const competition = await prisma.competition.findUnique({
+    const competition = await prisma?.competition.findUnique({
       where: {
         id: competitionId,
       },
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     }
 
     // Vérifier si le participant a déjà fait une demande
-    const existingParticipation = await prisma.participation.findFirst({
+    const existingParticipation = await prisma?.participation.findFirst({
       where: {
         competitionId,
         participantId: session.user.id,
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     }
 
     // Créer la demande de participation
-    const participation = await prisma.participation.create({
+    const participation = await prisma?.participation.create({
       data: {
         competitionId,
         participantId: session.user.id,

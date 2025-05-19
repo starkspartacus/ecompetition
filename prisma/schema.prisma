@@ -3,159 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
-}
-
-model User {
-  id                    String               @id @default(uuid())
-  email                 String               @unique
-  password              String?
-  phoneNumber           String?              @unique
-  firstName             String
-  lastName              String
-  dateOfBirth           DateTime
-  country               String
-  city                  String
-  commune               String?
-  address               String
-  photoUrl              String?
-  role                  UserRole
-  competitionCategory   CompetitionCategory?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-  accounts              Account[]
-  organizerCompetitions Competition[]        @relation("OrganizedCompetitions")
-  participations        Participation[]      @relation("ParticipantRequests")
-  sessions              Session[]
-  participantTeams      Team[]               @relation("TeamParticipant")
-}
-
-model Account {
-  id                String  @id @default(uuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-  session_state     String?
-  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-}
-
-model Session {
-  id           String   @id @default(uuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model VerificationToken {
-  identifier String
-  token      String
-  expires    DateTime
-
-  @@id([identifier, token])
-  @@unique([identifier, token])
-}
-
-model Competition {
-  id                   String              @id @default(uuid())
-  title                String
-  address              String
-  venue                String
-  maxParticipants      Int
-  imageUrl             String?
-  category             CompetitionCategory
-  registrationDeadline DateTime
-  uniqueCode           String              @unique
-  status               CompetitionStatus   @default(OPEN)
-  tournamentFormat     TournamentFormat?
-  organizerId          String
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  organizer            User                @relation("OrganizedCompetitions", fields: [organizerId], references: [id])
-  groups               Group[]
-  matches              Match[]
-  participations       Participation[]
-  teams                Team[]              @relation("CompetitionTeams")
-}
-
-model Team {
-  id            String      @id @default(uuid())
-  name          String
-  competitionId String
-  ownerId       String
-  groupId       String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  awayMatches   Match[]     @relation("AwayTeam")
-  homeMatches   Match[]     @relation("HomeTeam")
-  players       Player[]
-  competition   Competition @relation("CompetitionTeams", fields: [competitionId], references: [id])
-  group         Group?      @relation(fields: [groupId], references: [id])
-  owner         User        @relation("TeamParticipant", fields: [ownerId], references: [id])
-}
-
-model Player {
-  id        String   @id @default(uuid())
-  name      String
-  age       Int
-  teamId    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-}
-
-model Participation {
-  id            String              @id @default(uuid())
-  status        ParticipationStatus @default(PENDING)
-  competitionId String
-  participantId String
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  competition   Competition         @relation(fields: [competitionId], references: [id])
-  participant   User                @relation("ParticipantRequests", fields: [participantId], references: [id])
-
-  @@unique([competitionId, participantId])
-}
-
-model Match {
-  id            String          @id @default(uuid())
-  phase         TournamentPhase
-  matchNumber   Int
-  homeScore     Int?
-  awayScore     Int?
-  played        Boolean         @default(false)
-  scheduledDate DateTime?
-  competitionId String
-  homeTeamId    String
-  awayTeamId    String
-  groupId       String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  awayTeam      Team            @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  competition   Competition     @relation(fields: [competitionId], references: [id])
-  group         Group?          @relation(fields: [groupId], references: [id])
-  homeTeam      Team            @relation("HomeTeam", fields: [homeTeamId], references: [id])
-}
-
-model Group {
-  id            String      @id @default(uuid())
-  name          String
-  competitionId String
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  competition   Competition @relation(fields: [competitionId], references: [id])
-  matches       Match[]
-  teams         Team[]
 }
 
 enum UserRole {
@@ -198,4 +47,230 @@ enum TournamentPhase {
   QUARTER_FINALS
   SEMI_FINALS
   FINALS
+}
+
+enum AuthMethod {
+  EMAIL
+  PHONE
+  GOOGLE
+}
+
+model User {
+  id                 String               @id @default(auto()) @map("_id") @db.ObjectId
+  email              String?              @unique
+  password           String?
+  phoneNumber        String?              
+  phoneCountryCode   String?              // Ajout du code pays pour le téléphone
+  countryCode        String               // Code du pays de l'utilisateur
+  firstName          String
+  lastName           String
+  dateOfBirth        DateTime
+  city               String
+  commune            String?
+  address            String
+  photoUrl           String?
+  role               UserRole
+  preferredAuthMethod AuthMethod          @default(EMAIL)
+  competitionCategory CompetitionCategory? // Only for ORGANIZER
+  bio                String?              // Biographie de l'utilisateur
+  socialLinks        Json?                // Liens sociaux (Twitter, Instagram, etc.)
+  lastLogin          DateTime?            // Dernière connexion
+  isVerified         Boolean              @default(false)
+  verificationToken  String?              // Token pour vérifier l'email/téléphone
+  resetToken         String?              // Token pour réinitialiser le mot de passe
+  resetTokenExpiry   DateTime?            // Date d'expiration du token de réinitialisation
+
+  // Relations
+  organizerCompetitions Competition[]     @relation("OrganizedCompetitions")
+  participantTeams      Team[]            @relation("TeamParticipant")
+  participations        Participation[]   @relation("ParticipantRequests")
+  notifications         Notification[]    // Notifications de l'utilisateur
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  
+  accounts              Account[]
+  sessions              Session[]
+
+  @@unique([email, countryCode])
+  @@unique([phoneNumber, phoneCountryCode, countryCode])
+}
+
+model Account {
+  id                String  @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String  @db.ObjectId
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionToken String   @unique
+  userId       String   @db.ObjectId
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Competition {
+  id                  String             @id @default(auto()) @map("_id") @db.ObjectId
+  title               String
+  address             String
+  venue               String
+  maxParticipants     Int
+  imageUrl            String?
+  bannerUrl           String?            // Bannière pour la compétition
+  category            CompetitionCategory
+  registrationDeadline DateTime
+  startDate           DateTime?          // Date de début de la compétition
+  endDate             DateTime?          // Date de fin de la compétition
+  description         String?            // Description détaillée
+  rules               String?            // Règles de la compétition
+  prizes              Json?              // Informations sur les prix
+  uniqueCode          String             @unique
+  status              CompetitionStatus  @default(OPEN)
+  tournamentFormat    TournamentFormat?
+  isPublic            Boolean            @default(true) // Si la compétition est publique ou privée
+  
+  // Relations
+  organizerId         String             @db.ObjectId
+  organizer           User               @relation("OrganizedCompetitions", fields: [organizerId], references: [id])
+  teams               Team[]             @relation("CompetitionTeams")
+  participations      Participation[]
+  matches             Match[]
+  groups              Group[]
+  
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+}
+
+model Team {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  logoUrl       String?   // Logo de l'équipe
+  colors        String?   // Couleurs de l'équipe
+  description   String?   // Description de l'équipe
+  
+  // Relations
+  competitionId String    @db.ObjectId
+  competition   Competition @relation("CompetitionTeams", fields: [competitionId], references: [id])
+  ownerId       String    @db.ObjectId
+  owner         User      @relation("TeamParticipant", fields: [ownerId], references: [id])
+  players       Player[]
+  homeMatches   Match[]   @relation("HomeTeam")
+  awayMatches   Match[]   @relation("AwayTeam")
+  groupId       String?   @db.ObjectId
+  group         Group?    @relation(fields: [groupId], references: [id])
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Player {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  age         Int
+  position    String?  // Position du joueur
+  number      Int?     // Numéro du joueur
+  photoUrl    String?  // Photo du joueur
+  stats       Json?    // Statistiques du joueur
+  
+  // Relations
+  teamId      String   @db.ObjectId
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Participation {
+  id            String             @id @default(auto()) @map("_id") @db.ObjectId
+  status        ParticipationStatus @default(PENDING)
+  message       String?            // Message de demande de participation
+  responseMessage String?          // Message de réponse de l'organisateur
+  
+  // Relations
+  competitionId String             @db.ObjectId
+  competition   Competition        @relation(fields: [competitionId], references: [id])
+  participantId String             @db.ObjectId
+  participant   User               @relation("ParticipantRequests", fields: [participantId], references: [id])
+  
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  
+  @@unique([competitionId, participantId])
+}
+
+model Match {
+  id            String          @id @default(auto()) @map("_id") @db.ObjectId
+  phase         TournamentPhase
+  matchNumber   Int
+  homeScore     Int?
+  awayScore     Int?
+  played        Boolean         @default(false)
+  scheduledDate DateTime?
+  location      String?         // Lieu du match
+  highlights    String?         // Lien vers les temps forts
+  stats         Json?           // Statistiques du match
+  
+  // Relations
+  competitionId String          @db.ObjectId
+  competition   Competition     @relation(fields: [competitionId], references: [id])
+  homeTeamId    String          @db.ObjectId
+  homeTeam      Team            @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeamId    String          @db.ObjectId
+  awayTeam      Team            @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  groupId       String?         @db.ObjectId
+  group         Group?          @relation(fields: [groupId], references: [id])
+  
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+model Group {
+  id            String       @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  
+  // Relations
+  competitionId String       @db.ObjectId
+  competition   Competition  @relation(fields: [competitionId], references: [id])
+  teams         Team[]
+  matches       Match[]
+  
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model Notification {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  type        String   // Type de notification
+  title       String   // Titre de la notification
+  message     String   // Message de la notification
+  isRead      Boolean  @default(false)
+  link        String?  // Lien associé à la notification
+  
+  // Relations
+  userId      String   @db.ObjectId
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
 }
