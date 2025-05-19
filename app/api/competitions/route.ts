@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { nanoid } from "nanoid";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { createCompetitionWithoutTransaction } from "@/lib/db-helpers";
 
 export async function POST(req: Request) {
   try {
@@ -27,27 +28,44 @@ export async function POST(req: Request) {
       venue,
       maxParticipants,
       category,
+      registrationStartDate,
       registrationDeadline,
       imageUrl,
+      offsideRule,
+      substitutionRule,
+      yellowCardRule,
+      matchDuration,
+      customRules,
     } = body;
 
     // Générer un code unique pour la compétition
     const uniqueCode = nanoid(8).toUpperCase();
 
-    // Créer la compétition
-    const competition = await prisma?.competition.create({
-      data: {
-        title,
-        address,
-        venue,
-        maxParticipants,
-        category,
-        registrationDeadline: new Date(registrationDeadline),
-        imageUrl,
-        uniqueCode,
-        organizerId: session.user.id,
-      },
-    });
+    // Créer la compétition sans utiliser de transaction
+    const competitionData = {
+      title,
+      address,
+      venue,
+      maxParticipants,
+      category,
+      registrationStartDate: new Date(registrationStartDate || new Date()),
+      registrationDeadline: new Date(registrationDeadline),
+      imageUrl,
+      uniqueCode,
+      organizerId: session.user.id,
+      offsideRule,
+      substitutionRule,
+      yellowCardRule,
+      matchDuration,
+      customRules,
+      status: "OPEN",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const competition = await createCompetitionWithoutTransaction(
+      competitionData
+    );
 
     return NextResponse.json(
       {
@@ -93,6 +111,7 @@ export async function GET(req: Request) {
             select: {
               firstName: true,
               lastName: true,
+              photoUrl: true,
             },
           },
         },

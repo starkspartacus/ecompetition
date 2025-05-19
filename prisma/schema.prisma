@@ -55,6 +55,30 @@ enum AuthMethod {
   GOOGLE
 }
 
+// Nouvelles énumérations pour les règles de compétition
+enum OffsideRule {
+  ENABLED
+  DISABLED
+}
+
+enum SubstitutionRule {
+  LIMITED // Nombre limité de remplacements
+  UNLIMITED // Remplacements illimités
+  FLYING // Remplacements volants (sans arrêt de jeu)
+}
+
+enum YellowCardRule {
+  STANDARD // Expulsion après 2 cartons jaunes
+  STRICT // Expulsion après 1 carton jaune
+  LENIENT // Expulsion après 3 cartons jaunes
+}
+
+enum MatchDuration {
+  SHORT // Ex: 2x30 minutes
+  STANDARD // Ex: 2x45 minutes
+  EXTENDED // Ex: 2x60 minutes
+}
+
 model User {
   id                 String               @id @default(auto()) @map("_id") @db.ObjectId
   email              String?              @unique
@@ -141,6 +165,7 @@ model Competition {
   imageUrl            String?
   bannerUrl           String?            // Bannière pour la compétition
   category            CompetitionCategory
+  registrationStartDate DateTime          // Nouvelle date de début d'inscription
   registrationDeadline DateTime
   startDate           DateTime?          // Date de début de la compétition
   endDate             DateTime?          // Date de fin de la compétition
@@ -151,6 +176,13 @@ model Competition {
   status              CompetitionStatus  @default(OPEN)
   tournamentFormat    TournamentFormat?
   isPublic            Boolean            @default(true) // Si la compétition est publique ou privée
+  
+  // Nouvelles règles de compétition
+  offsideRule         OffsideRule?       // Règle de hors-jeu
+  substitutionRule    SubstitutionRule?  // Règle de remplacement
+  yellowCardRule      YellowCardRule?    // Règle de carton jaune
+  matchDuration       MatchDuration?     // Durée des matchs
+  customRules         Json?              // Règles personnalisées supplémentaires
   
   // Relations
   organizerId         String             @db.ObjectId
