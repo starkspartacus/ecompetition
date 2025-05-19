@@ -99,6 +99,15 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
+    async redirect({ url, baseUrl }) {
+      // Permet de gérer les redirections personnalisées
+      // Si l'URL est relative, on la combine avec l'URL de base
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      // Si l'URL est sur le même domaine, on la retourne
+      else if (new URL(url).origin === baseUrl) return url;
+      // Sinon, on retourne à l'URL de base
+      return baseUrl;
+    },
   },
   debug: true,
   secret: process.env.NEXTAUTH_SECRET,

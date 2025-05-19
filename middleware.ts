@@ -12,9 +12,29 @@ export async function middleware(request: NextRequest) {
   if (
     !token &&
     !request.nextUrl.pathname.startsWith("/signin") &&
-    !request.nextUrl.pathname.startsWith("/signup")
+    !request.nextUrl.pathname.startsWith("/signup") &&
+    !request.nextUrl.pathname.startsWith("/api") &&
+    request.nextUrl.pathname !== "/"
   ) {
     return NextResponse.redirect(new URL("/signin", request.url));
+  }
+
+  // Si l'utilisateur est connecté et essaie d'accéder à la page de connexion ou d'inscription
+  if (
+    token &&
+    (request.nextUrl.pathname.startsWith("/signin") ||
+      request.nextUrl.pathname.startsWith("/signup"))
+  ) {
+    // Rediriger vers le tableau de bord approprié en fonction du rôle
+    if (token.role === "ORGANIZER") {
+      return NextResponse.redirect(
+        new URL("/organizer/dashboard", request.url)
+      );
+    } else {
+      return NextResponse.redirect(
+        new URL("/participant/dashboard", request.url)
+      );
+    }
   }
 
   // Vérifier les accès spécifiques aux rôles

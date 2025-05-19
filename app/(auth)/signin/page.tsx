@@ -62,9 +62,19 @@ export default function SigninPage() {
         return;
       }
 
-      if (result?.url) {
-        router.push(result.url);
+      // Récupérer les informations de l'utilisateur pour déterminer le rôle
+      const userResponse = await fetch("/api/auth/user");
+      const userData = await userResponse.json();
+
+      if (userData.user) {
+        // Rediriger en fonction du rôle
+        if (userData.user.role === "ORGANIZER") {
+          router.push("/organizer/dashboard");
+        } else {
+          router.push("/participant/dashboard");
+        }
       } else {
+        // Fallback si on ne peut pas déterminer le rôle
         router.push("/");
       }
 
