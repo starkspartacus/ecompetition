@@ -11,8 +11,22 @@ services:
     networks:
       - app-network
 
+  postgresql:
+    image: postgres:latest
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: competition
+    networks:
+      - app-network
+
 volumes:
   mongodb_data:
+  postgresql_data:
 
 networks:
   app-network:
