@@ -1,12 +1,9 @@
-// This is your Prisma schema file
-// Learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "mongodb"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -53,7 +50,7 @@ enum TournamentPhase {
 }
 
 model User {
-  id                 String               @id @default(auto()) @map("_id") @db.ObjectId
+  id                 String               @id @default(uuid())
   email              String               @unique
   password           String?
   phoneNumber        String?              @unique
@@ -80,17 +77,17 @@ model User {
 }
 
 model Account {
-  id                String  @id @default(auto()) @map("_id") @db.ObjectId
-  userId            String  @db.ObjectId
+  id                String  @id @default(uuid())
+  userId            String
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.String
-  access_token      String? @db.String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.String
+  id_token          String? @db.Text
   session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -99,24 +96,24 @@ model Account {
 }
 
 model Session {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  id           String   @id @default(uuid())
   sessionToken String   @unique
-  userId       String   @db.ObjectId
+  userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
   identifier String
-  token      String   @unique
+  token      String
   expires    DateTime
 
   @@unique([identifier, token])
+  @@id([identifier, token])
 }
 
 model Competition {
-  id                  String             @id @default(auto()) @map("_id") @db.ObjectId
+  id                  String             @id @default(uuid())
   title               String
   address             String
   venue               String
@@ -129,7 +126,7 @@ model Competition {
   tournamentFormat    TournamentFormat?
   
   // Relations
-  organizerId         String             @db.ObjectId
+  organizerId         String
   organizer           User               @relation("OrganizedCompetitions", fields: [organizerId], references: [id])
   teams               Team[]             @relation("CompetitionTeams")
   participations      Participation[]
@@ -141,18 +138,18 @@ model Competition {
 }
 
 model Team {
-  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  id            String    @id @default(uuid())
   name          String
   
   // Relations
-  competitionId String    @db.ObjectId
+  competitionId String
   competition   Competition @relation("CompetitionTeams", fields: [competitionId], references: [id])
-  ownerId       String    @db.ObjectId
+  ownerId       String
   owner         User      @relation("TeamParticipant", fields: [ownerId], references: [id])
   players       Player[]
   homeMatches   Match[]   @relation("HomeTeam")
   awayMatches   Match[]   @relation("AwayTeam")
-  groupId       String?   @db.ObjectId
+  groupId       String?
   group         Group?    @relation(fields: [groupId], references: [id])
   
   createdAt     DateTime  @default(now())
@@ -160,12 +157,12 @@ model Team {
 }
 
 model Player {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  id        String   @id @default(uuid())
   name      String
   age       Int
   
   // Relations
-  teamId    String   @db.ObjectId
+  teamId    String
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   
   createdAt DateTime @default(now())
@@ -173,13 +170,13 @@ model Player {
 }
 
 model Participation {
-  id            String             @id @default(auto()) @map("_id") @db.ObjectId
+  id            String             @id @default(uuid())
   status        ParticipationStatus @default(PENDING)
   
   // Relations
-  competitionId String             @db.ObjectId
+  competitionId String
   competition   Competition        @relation(fields: [competitionId], references: [id])
-  participantId String             @db.ObjectId
+  participantId String
   participant   User               @relation("ParticipantRequests", fields: [participantId], references: [id])
   
   createdAt     DateTime           @default(now())
@@ -189,7 +186,7 @@ model Participation {
 }
 
 model Match {
-  id            String          @id @default(auto()) @map("_id") @db.ObjectId
+  id            String          @id @default(uuid())
   phase         TournamentPhase
   matchNumber   Int
   homeScore     Int?
@@ -198,13 +195,13 @@ model Match {
   scheduledDate DateTime?
   
   // Relations
-  competitionId String          @db.ObjectId
+  competitionId String
   competition   Competition     @relation(fields: [competitionId], references: [id])
-  homeTeamId    String          @db.ObjectId
+  homeTeamId    String
   homeTeam      Team            @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeamId    String          @db.ObjectId
+  awayTeamId    String
   awayTeam      Team            @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  groupId       String?         @db.ObjectId
+  groupId       String?
   group         Group?          @relation(fields: [groupId], references: [id])
   
   createdAt     DateTime        @default(now())
@@ -212,11 +209,11 @@ model Match {
 }
 
 model Group {
-  id            String       @id @default(auto()) @map("_id") @db.ObjectId
+  id            String       @id @default(uuid())
   name          String
   
   // Relations
-  competitionId String       @db.ObjectId
+  competitionId String
   competition   Competition  @relation(fields: [competitionId], references: [id])
   teams         Team[]
   matches       Match[]

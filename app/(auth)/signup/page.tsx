@@ -1,35 +1,50 @@
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 
-import { useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-import Link from "next/link"
-import { z } from "zod"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { Button } from "@/components/ui/button"
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { PAYS } from "@/constants/pays"
-import { VILLES } from "@/constants/villes"
-import { COMMUNES } from "@/constants/communes"
-import { COMPETITION_CATEGORIES } from "@/constants/categories"
-import { uploadImage } from "@/lib/blob"
-import { toast } from "@/components/ui/use-toast"
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PAYS } from "@/constants/pays";
+import { VILLES } from "@/constants/villes";
+import { COMMUNES } from "@/constants/communes";
+import { COMPETITION_CATEGORIES } from "@/constants/categories";
+import { uploadImage } from "@/lib/blob";
+import { toast } from "@/components/ui/use-toast";
 
 const signupSchema = z.object({
   firstName: z.string().min(2, "Le prénom doit contenir au moins 2 caractères"),
   lastName: z.string().min(2, "Le nom doit contenir au moins 2 caractères"),
   email: z.string().email("Email invalide"),
-  password: z.string().min(8, "Le mot de passe doit contenir au moins 8 caractères"),
+  password: z
+    .string()
+    .min(8, "Le mot de passe doit contenir au moins 8 caractères"),
   dateOfBirth: z.string().refine((date) => {
-    const birthDate = new Date(date)
-    const today = new Date()
-    const age = today.getFullYear() - birthDate.getFullYear()
-    return age >= 13
+    const birthDate = new Date(date);
+    const today = new Date();
+    const age = today.getFullYear() - birthDate.getFullYear();
+    return age >= 13;
   }, "Vous devez avoir au moins 13 ans"),
   country: z.string().min(1, "Veuillez sélectionner un pays"),
   city: z.string().min(1, "Veuillez sélectionner une ville"),
@@ -39,19 +54,22 @@ const signupSchema = z.object({
   role: z.enum(["ORGANIZER", "PARTICIPANT"]),
   competitionCategory: z.string().optional(),
   phoneNumber: z.string().optional(),
-})
+});
 
 export default function SignupPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const defaultRole = searchParams.get("role") === "organizer" ? "ORGANIZER" : "PARTICIPANT"
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const defaultRole =
+    searchParams.get("role") === "organizer" ? "ORGANIZER" : "PARTICIPANT";
 
-  const [isLoading, setIsLoading] = useState(false)
-  const [selectedCountry, setSelectedCountry] = useState("")
-  const [selectedCity, setSelectedCity] = useState("")
-  const [photoFile, setPhotoFile] = useState<File | null>(null)
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
-  const [authMethod, setAuthMethod] = useState<"email" | "phone" | "google">("email")
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState("");
+  const [selectedCity, setSelectedCity] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [authMethod, setAuthMethod] = useState<"email" | "phone" | "google">(
+    "email"
+  );
 
   const form = useForm<z.infer<typeof signupSchema>>({
     resolver: zodResolver(signupSchema),
@@ -68,28 +86,38 @@ export default function SignupPage() {
       role: defaultRole,
       competitionCategory: defaultRole === "ORGANIZER" ? "FOOTBALL" : undefined,
     },
-  })
+  });
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+    const file = e.target.files?.[0];
     if (file) {
-      setPhotoFile(file)
-      const reader = new FileReader()
+      setPhotoFile(file);
+      const reader = new FileReader();
       reader.onloadend = () => {
-        setPhotoPreview(reader.result as string)
-      }
-      reader.readAsDataURL(file)
+        setPhotoPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
-  }
+  };
 
   const onSubmit = async (values: z.infer<typeof signupSchema>) => {
     try {
-      setIsLoading(true)
+      setIsLoading(true);
 
       // Upload photo if provided
-      let photoUrl = null
+      let photoUrl = null;
       if (photoFile) {
-        photoUrl = await uploadImage(photoFile)
+        try {
+          photoUrl = await uploadImage(photoFile);
+        } catch (error) {
+          toast({
+            title: "Erreur",
+            description:
+              "Impossible de télécharger l'image. L'inscription continuera sans photo.",
+            variant: "destructive",
+          });
+          // Continue without photo
+        }
       }
 
       // Create user
@@ -102,43 +130,53 @@ export default function SignupPage() {
           ...values,
           photoUrl,
         }),
-      })
+      });
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.message || "Une erreur est survenue lors de l'inscription")
+        const error = await response.json();
+        throw new Error(
+          error.message || "Une erreur est survenue lors de l'inscription"
+        );
       }
 
       toast({
         title: "Inscription réussie",
         description: "Vous pouvez maintenant vous connecter",
-      })
+      });
 
-      router.push("/signin")
+      router.push("/signin");
     } catch (error: any) {
       toast({
         title: "Erreur",
-        description: error.message || "Une erreur est survenue lors de l'inscription",
+        description:
+          error.message || "Une erreur est survenue lors de l'inscription",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
-  const role = form.watch("role")
-  const country = form.watch("country")
-  const city = form.watch("city")
+  const role = form.watch("role");
+  const country = form.watch("country");
+  const city = form.watch("city");
 
   return (
     <div className="container flex h-screen w-screen flex-col items-center justify-center">
       <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[550px]">
         <div className="flex flex-col space-y-2 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Créer un compte</h1>
-          <p className="text-sm text-muted-foreground">Inscrivez-vous pour commencer à utiliser e-compétition</p>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Créer un compte
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Inscrivez-vous pour commencer à utiliser e-compétition
+          </p>
         </div>
 
-        <Tabs defaultValue="email" onValueChange={(value) => setAuthMethod(value as any)}>
+        <Tabs
+          defaultValue="email"
+          onValueChange={(value) => setAuthMethod(value as any)}
+        >
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="email">Email</TabsTrigger>
             <TabsTrigger value="phone">Téléphone</TabsTrigger>
@@ -147,7 +185,10 @@ export default function SignupPage() {
           <TabsContent value="email">
             <div className="grid gap-6">
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <form
+                  onSubmit={form.handleSubmit(onSubmit)}
+                  className="space-y-6"
+                >
                   <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
@@ -184,7 +225,11 @@ export default function SignupPage() {
                       <FormItem>
                         <FormLabel>Email</FormLabel>
                         <FormControl>
-                          <Input placeholder="john.doe@example.com" type="email" {...field} />
+                          <Input
+                            placeholder="john.doe@example.com"
+                            type="email"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -198,7 +243,11 @@ export default function SignupPage() {
                       <FormItem>
                         <FormLabel>Mot de passe</FormLabel>
                         <FormControl>
-                          <Input placeholder="********" type="password" {...field} />
+                          <Input
+                            placeholder="********"
+                            type="password"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -228,10 +277,10 @@ export default function SignupPage() {
                           <FormLabel>Pays</FormLabel>
                           <Select
                             onValueChange={(value) => {
-                              field.onChange(value)
-                              setSelectedCountry(value)
-                              form.setValue("city", "")
-                              form.setValue("commune", "")
+                              field.onChange(value);
+                              setSelectedCountry(value);
+                              form.setValue("city", "");
+                              form.setValue("commune", "");
                             }}
                             defaultValue={field.value}
                           >
@@ -261,9 +310,9 @@ export default function SignupPage() {
                           <FormLabel>Ville</FormLabel>
                           <Select
                             onValueChange={(value) => {
-                              field.onChange(value)
-                              setSelectedCity(value)
-                              form.setValue("commune", "")
+                              field.onChange(value);
+                              setSelectedCity(value);
+                              form.setValue("commune", "");
                             }}
                             defaultValue={field.value}
                             disabled={!country}
@@ -275,11 +324,16 @@ export default function SignupPage() {
                             </FormControl>
                             <SelectContent>
                               {country &&
-                                VILLES[country as keyof typeof VILLES]?.map((ville) => (
-                                  <SelectItem key={ville.value} value={ville.value}>
-                                    {ville.label}
-                                  </SelectItem>
-                                ))}
+                                VILLES[country as keyof typeof VILLES]?.map(
+                                  (ville) => (
+                                    <SelectItem
+                                      key={ville.value}
+                                      value={ville.value}
+                                    >
+                                      {ville.label}
+                                    </SelectItem>
+                                  )
+                                )}
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -295,7 +349,11 @@ export default function SignupPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Commune</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!city}>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                            disabled={!city}
+                          >
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Sélectionner une commune" />
@@ -303,11 +361,16 @@ export default function SignupPage() {
                             </FormControl>
                             <SelectContent>
                               {city &&
-                                COMMUNES[city as keyof typeof COMMUNES]?.map((commune) => (
-                                  <SelectItem key={commune.value} value={commune.value}>
-                                    {commune.label}
-                                  </SelectItem>
-                                ))}
+                                COMMUNES[city as keyof typeof COMMUNES]?.map(
+                                  (commune) => (
+                                    <SelectItem
+                                      key={commune.value}
+                                      value={commune.value}
+                                    >
+                                      {commune.label}
+                                    </SelectItem>
+                                  )
+                                )}
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -366,15 +429,22 @@ export default function SignupPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Type de compte</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select
+                          onValueChange={field.onChange}
+                          defaultValue={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Sélectionner un type de compte" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="ORGANIZER">Organisateur</SelectItem>
-                            <SelectItem value="PARTICIPANT">Participant</SelectItem>
+                            <SelectItem value="ORGANIZER">
+                              Organisateur
+                            </SelectItem>
+                            <SelectItem value="PARTICIPANT">
+                              Participant
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -389,7 +459,10 @@ export default function SignupPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Catégorie de compétition</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Sélectionner une catégorie" />
@@ -397,7 +470,10 @@ export default function SignupPage() {
                             </FormControl>
                             <SelectContent>
                               {COMPETITION_CATEGORIES.map((category) => (
-                                <SelectItem key={category.value} value={category.value}>
+                                <SelectItem
+                                  key={category.value}
+                                  value={category.value}
+                                >
                                   {category.label}
                                 </SelectItem>
                               ))}
@@ -435,7 +511,7 @@ export default function SignupPage() {
                 className="w-full"
                 onClick={() => {
                   // Redirection vers l'authentification Google
-                  window.location.href = "/api/auth/signin/google"
+                  window.location.href = "/api/auth/signin/google";
                 }}
               >
                 <svg
@@ -462,11 +538,14 @@ export default function SignupPage() {
 
         <p className="px-8 text-center text-sm text-muted-foreground">
           Vous avez déjà un compte?{" "}
-          <Link href="/signin" className="underline underline-offset-4 hover:text-primary">
+          <Link
+            href="/signin"
+            className="underline underline-offset-4 hover:text-primary"
+          >
             Se connecter
           </Link>
         </p>
       </div>
     </div>
-  )
+  );
 }

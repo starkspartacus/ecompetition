@@ -1,27 +1,9 @@
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import type { NextAuthOptions, DefaultSession } from "next-auth";
+import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import { compare } from "bcrypt";
 import prisma from "@/lib/prisma";
-
-declare module "next-auth" {
-  interface User {
-    role?: string;
-  }
-  interface Session {
-    user: {
-      id: string;
-      role: string;
-    } & DefaultSession["user"];
-  }
-}
-
-declare module "next-auth/jwt" {
-  interface JWT {
-    role?: string;
-  }
-}
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -87,11 +69,12 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
-      if (token) {
+      if (token && session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
       }
       return session;
     },
   },
+  debug: process.env.NODE_ENV === "development",
 };
