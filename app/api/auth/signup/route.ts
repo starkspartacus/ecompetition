@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { hash } from "bcrypt";
 import prisma from "@/lib/prisma";
+import { MongoClient, ObjectId } from "mongodb";
+
+// Connexion directe à MongoDB
+const mongoClient = new MongoClient(process.env.DATABASE_URL || "");
 
 export async function POST(req: Request) {
   try {
@@ -19,6 +23,7 @@ export async function POST(req: Request) {
       role,
       competitionCategory,
       phoneNumber,
+      phoneCountryCode,
     } = body;
 
     // Vérifier si l'email existe déjà
@@ -37,7 +42,7 @@ export async function POST(req: Request) {
 
     // Vérifier si le numéro de téléphone existe déjà (s'il est fourni)
     if (phoneNumber) {
-      const existingPhoneUser = await prisma?.user.findUnique({
+      const existingPhoneUser = await prisma?.user.findFirst({
         where: {
           phoneNumber,
         },
@@ -54,32 +59,46 @@ export async function POST(req: Request) {
     // Hacher le mot de passe
     const hashedPassword = await hash(password, 10);
 
-    // Créer l'utilisateur
-    const user = await prisma?.user.create({
-      data: {
-        firstName,
-        lastName,
-        email,
-        password: hashedPassword,
-        phoneNumber,
-        dateOfBirth: new Date(dateOfBirth),
-        country,
-        city,
-        commune,
-        address,
-        photoUrl,
-        role,
-        competitionCategory: role === "ORGANIZER" ? competitionCategory : null,
-      },
-    });
+    // Créer l'utilisateur directement avec MongoDB
+    await mongoClient.connect();
+    const db = mongoClient.db();
+    const usersCollection = db.collection("User");
+
+    const userId = new ObjectId();
+
+    const userData = {
+      _id: userId,
+      firstName,
+      lastName,
+      email,
+      password: hashedPassword,
+      phoneNumber,
+      phoneCountryCode,
+      countryCode: country,
+      dateOfBirth: new Date(dateOfBirth),
+      city,
+      commune,
+      address,
+      photoUrl,
+      role,
+      competitionCategory: role === "ORGANIZER" ? competitionCategory : null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      isVerified: false,
+    };
+
+    await usersCollection.insertOne(userData);
+
+    // Fermer la connexion
+    await mongoClient.close();
 
     return NextResponse.json(
       {
         message: "Utilisateur créé avec succès",
         user: {
-          id: user?.id,
-          email: user?.email,
-          role: user?.role,
+          id: userId.toString(),
+          email,
+          role,
         },
       },
       { status: 201 }

@@ -99,7 +99,7 @@ export function LocationSelector({
         <Select
           value={cityValue}
           onValueChange={handleCityChange}
-          disabled={!countryCode || availableCities.length === 0}
+          disabled={!countryCode}
         >
           <FormControl>
             <SelectTrigger className="bg-white/80 backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-all">

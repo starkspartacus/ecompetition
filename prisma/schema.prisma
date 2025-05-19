@@ -59,8 +59,8 @@ model User {
   id                 String               @id @default(auto()) @map("_id") @db.ObjectId
   email              String?              @unique
   password           String?
-  phoneNumber        String?              
-  phoneCountryCode   String?              // Ajout du code pays pour le téléphone
+  phoneNumber        String?              @unique  // Ajout de @unique ici
+  phoneCountryCode   String?              // Code pays pour le téléphone
   countryCode        String               // Code du pays de l'utilisateur
   firstName          String
   lastName           String
@@ -92,6 +92,7 @@ model User {
   sessions              Session[]
 
   @@unique([email, countryCode])
+  // Nous gardons cette contrainte composée pour la compatibilité
   @@unique([phoneNumber, phoneCountryCode, countryCode])
 }
 

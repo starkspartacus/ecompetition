@@ -51,6 +51,12 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  GoogleButton,
+  SocialAuthDivider,
+} from "@/components/social-auth-buttons";
+import { VILLES } from "@/constants/villes";
+import { COMMUNES } from "@/constants/communes";
 
 // Schéma de validation amélioré avec des messages d'erreur plus descriptifs
 const signupSchema = z.object({
@@ -144,6 +150,21 @@ function getPasswordStrengthText(strength: number): string {
   if (strength < 40) return "Faible";
   if (strength < 70) return "Moyen";
   return "Fort";
+}
+
+// Fonction utilitaire pour convertir le code pays en clé de VILLES
+function getVillesKey(countryCode: string): keyof typeof VILLES | undefined {
+  if (!countryCode) return undefined;
+  switch (countryCode.toUpperCase()) {
+    case "FR":
+      return "france";
+    case "SN":
+      return "senegal";
+    case "CI":
+      return "cote_ivoire";
+    default:
+      return undefined;
+  }
 }
 
 export default function SignupPage() {
@@ -860,23 +881,116 @@ export default function SignupPage() {
                             <FormField
                               control={form.control}
                               name="city"
-                              render={({ field }) => (
-                                <LocationSelector
-                                  countryCode={countryCode}
-                                  cityValue={field.value}
-                                  communeValue={commune}
-                                  onCityChange={field.onChange}
-                                  onCommuneChange={(value) =>
-                                    form.setValue("commune", value)
-                                  }
-                                  cityError={
-                                    form.formState.errors.city?.message
-                                  }
-                                  communeError={
-                                    form.formState.errors.commune?.message
-                                  }
-                                />
-                              )}
+                              render={({ field }) => {
+                                const villesKey = getVillesKey(countryCode);
+                                return (
+                                  <FormItem>
+                                    <FormLabel className="flex items-center gap-1.5">
+                                      <MapPin className="h-4 w-4 text-primary" />
+                                      Ville
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Select
+                                        onValueChange={(value) => {
+                                          field.onChange(value);
+                                          form.setValue("commune", ""); // reset commune
+                                        }}
+                                        value={field.value}
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue placeholder="Sélectionner une ville" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {villesKey &&
+                                          VILLES[villesKey] &&
+                                          VILLES[villesKey].length > 0 ? (
+                                            VILLES[villesKey].map(
+                                              (ville: {
+                                                value: string;
+                                                label: string;
+                                              }) => (
+                                                <SelectItem
+                                                  key={ville.value}
+                                                  value={ville.value}
+                                                >
+                                                  {ville.label}
+                                                </SelectItem>
+                                              )
+                                            )
+                                          ) : (
+                                            <SelectItem
+                                              value="__none__"
+                                              disabled
+                                            >
+                                              Aucune ville disponible
+                                            </SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                );
+                              }}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name="commune"
+                              render={({ field }) => {
+                                const communes = city
+                                  ? COMMUNES[city as keyof typeof COMMUNES] ||
+                                    []
+                                  : [];
+                                return (
+                                  <FormItem>
+                                    <FormLabel className="flex items-center gap-1.5">
+                                      <MapPin className="h-4 w-4 text-primary" />
+                                      Commune
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Select
+                                        onValueChange={field.onChange}
+                                        value={field.value}
+                                        disabled={
+                                          !city || communes.length === 0
+                                        }
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue placeholder="Sélectionner une commune" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {communes.length > 0 ? (
+                                            communes.map((commune) => (
+                                              <SelectItem
+                                                key={commune.value}
+                                                value={commune.value}
+                                              >
+                                                {commune.label}
+                                              </SelectItem>
+                                            ))
+                                          ) : (
+                                            <SelectItem
+                                              value="__none__"
+                                              disabled
+                                            >
+                                              Aucune commune disponible
+                                            </SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    </FormControl>
+                                    <FormDescription>
+                                      {!city
+                                        ? "Sélectionnez d'abord une ville"
+                                        : communes.length === 0
+                                        ? "Aucune commune disponible pour cette ville"
+                                        : "Sélectionnez votre commune"}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                );
+                              }}
                             />
                           </div>
 
@@ -1118,6 +1232,18 @@ export default function SignupPage() {
                                 </FormItem>
                               )}
                             />
+                          )}
+                          {currentStep === 3 && (
+                            <div className="mt-6">
+                              <SocialAuthDivider />
+                              <div className="mt-4 space-y-4">
+                                <GoogleButton callbackUrl="/signup" />
+                                <div className="text-xs text-center text-muted-foreground">
+                                  En vous connectant avec Google, vous pourrez
+                                  créer un compte plus rapidement.
+                                </div>
+                              </div>
+                            </div>
                           )}
                         </motion.div>
                       )}
