@@ -1,112 +1,79 @@
-import { NextResponse } from "next/server";
-import { hash } from "bcrypt";
-import prisma from "@/lib/prisma";
-import { MongoClient, ObjectId } from "mongodb";
+import { type NextRequest, NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
+import {
+  createUserWithoutTransaction,
+  emailExists,
+  phoneNumberExists,
+} from "@/lib/db-helpers";
 
-// Connexion directe à MongoDB
-const mongoClient = new MongoClient(process.env.DATABASE_URL || "");
-
-export async function POST(req: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json();
-    const {
-      firstName,
-      lastName,
-      email,
-      password,
-      dateOfBirth,
-      country,
-      city,
-      commune,
-      address,
-      photoUrl,
-      role,
-      competitionCategory,
-      phoneNumber,
-      phoneCountryCode,
-    } = body;
+    const data = await request.json();
+
+    // Valider les données requises
+    if (!data.email || !data.password || !data.name) {
+      return NextResponse.json(
+        { success: false, message: "Données manquantes" },
+        { status: 400 }
+      );
+    }
 
     // Vérifier si l'email existe déjà
-    const existingUser = await prisma?.user.findUnique({
-      where: {
-        email,
-      },
-    });
-
-    if (existingUser) {
+    const emailAlreadyExists = await emailExists(data.email);
+    if (emailAlreadyExists) {
       return NextResponse.json(
-        { message: "Cet email est déjà utilisé" },
+        { success: false, message: "Cet email est déjà utilisé" },
         { status: 400 }
       );
     }
 
     // Vérifier si le numéro de téléphone existe déjà (s'il est fourni)
-    if (phoneNumber) {
-      const existingPhoneUser = await prisma?.user.findFirst({
-        where: {
-          phoneNumber,
-        },
-      });
-
-      if (existingPhoneUser) {
+    if (data.phoneNumber) {
+      const phoneNumberAlreadyExists = await phoneNumberExists(
+        data.phoneNumber
+      );
+      if (phoneNumberAlreadyExists) {
         return NextResponse.json(
-          { message: "Ce numéro de téléphone est déjà utilisé" },
+          {
+            success: false,
+            message: "Ce numéro de téléphone est déjà utilisé",
+          },
           { status: 400 }
         );
       }
     }
 
     // Hacher le mot de passe
-    const hashedPassword = await hash(password, 10);
+    const salt = bcrypt.genSaltSync(10);
+    const hashedPassword = bcrypt.hashSync(data.password, salt);
 
-    // Créer l'utilisateur directement avec MongoDB
-    await mongoClient.connect();
-    const db = mongoClient.db();
-    const usersCollection = db.collection("User");
-
-    const userId = new ObjectId();
-
+    // Données à enregistrer
     const userData = {
-      _id: userId,
-      firstName,
-      lastName,
-      email,
+      email: data.email,
       password: hashedPassword,
-      phoneNumber,
-      phoneCountryCode,
-      countryCode: country,
-      dateOfBirth: new Date(dateOfBirth),
-      city,
-      commune,
-      address,
-      photoUrl,
-      role,
-      competitionCategory: role === "ORGANIZER" ? competitionCategory : null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      isVerified: false,
+      name: data.name,
+      phoneNumber: data.phoneNumber || null,
+      role: data.role || "PARTICIPANT",
     };
 
-    await usersCollection.insertOne(userData);
+    // Créer l'utilisateur sans transaction
+    const user = await createUserWithoutTransaction(userData);
 
-    // Fermer la connexion
-    await mongoClient.close();
-
-    return NextResponse.json(
-      {
-        message: "Utilisateur créé avec succès",
-        user: {
-          id: userId.toString(),
-          email,
-          role,
-        },
+    return NextResponse.json({
+      success: true,
+      message: "Compte créé avec succès",
+      user: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
       },
-      { status: 201 }
-    );
+    });
   } catch (error) {
     console.error("Erreur lors de l'inscription:", error);
     return NextResponse.json(
-      { message: "Une erreur est survenue lors de l'inscription" },
+      { success: false, message: "Erreur lors de l'inscription" },
       { status: 500 }
     );
   }

@@ -1,166 +1,238 @@
-import prisma from "./prisma";
+import prismaNoTransactions from "./prisma-no-transactions-alt";
 import { generateUniqueCode } from "./utils";
-import {
-  type CompetitionCategory,
-  CompetitionStatus,
-  type OffsideRule,
-  type SubstitutionRule,
-  type YellowCardRule,
-  type MatchDuration,
-  type TournamentFormat,
-} from "@prisma/client";
 
 // Fonction pour créer un utilisateur sans transaction
 export async function createUserWithoutTransaction(userData: any) {
-  return await prisma?.user.create({
-    data: userData,
-  });
+  try {
+    console.log("Création d'un utilisateur sans transaction...");
+    const result = await prismaNoTransactions.user.create({
+      data: userData,
+    });
+    console.log("Utilisateur créé avec succès:", result.id);
+    return result;
+  } catch (error) {
+    console.error("Erreur lors de la création de l'utilisateur:", error);
+    throw error;
+  }
 }
 
 // Fonction pour vérifier si un email existe déjà
 export async function emailExists(email: string) {
-  const user = await prisma?.user.findUnique({
-    where: {
-      email,
-    },
-  });
-  return !!user;
+  try {
+    const count = await prismaNoTransactions.user.count({
+      where: {
+        email,
+      },
+    });
+    return count > 0;
+  } catch (error) {
+    console.error("Erreur lors de la vérification de l'email:", error);
+    throw error;
+  }
 }
 
 // Fonction pour vérifier si un numéro de téléphone existe déjà
 export async function phoneNumberExists(phoneNumber: string) {
-  const user = await prisma?.user.findUnique({
-    where: {
-      phoneNumber,
-    },
-  });
-  return !!user;
+  try {
+    const count = await prismaNoTransactions.user.count({
+      where: {
+        phoneNumber,
+      },
+    });
+    return count > 0;
+  } catch (error) {
+    console.error(
+      "Erreur lors de la vérification du numéro de téléphone:",
+      error
+    );
+    throw error;
+  }
 }
 
 // Fonction pour récupérer un utilisateur par son email
 export async function getUserByEmail(email: string) {
-  return await prisma?.user.findUnique({
-    where: {
-      email,
-    },
-  });
+  try {
+    return await prismaNoTransactions.user.findUnique({
+      where: {
+        email,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Erreur lors de la récupération de l'utilisateur par email:",
+      error
+    );
+    throw error;
+  }
 }
 
 // Fonction pour récupérer un utilisateur par son ID
 export async function getUserById(id: string) {
-  return await prisma?.user.findUnique({
-    where: {
-      id,
-    },
-  });
+  try {
+    return await prismaNoTransactions.user.findUnique({
+      where: {
+        id,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Erreur lors de la récupération de l'utilisateur par ID:",
+      error
+    );
+    throw error;
+  }
 }
 
 // Fonction pour créer une compétition sans transaction
-export async function createCompetitionWithoutTransaction(competitionData: {
-  title: string;
-  description: string;
-  address: string;
-  venue: string;
-  startDate: Date;
-  endDate: Date;
-  registrationStartDate: Date;
-  registrationDeadline: Date;
-  maxParticipants: number;
-  category: CompetitionCategory;
-  status?: CompetitionStatus;
-  tournamentFormat?: TournamentFormat;
-  offsideRule?: OffsideRule;
-  substitutionRule?: SubstitutionRule;
-  yellowCardRule?: YellowCardRule;
-  matchDuration?: MatchDuration;
-  customRules?: any;
-  imageUrl?: string;
-  organizerId: string;
-}) {
-  // Générer un code unique pour la compétition
-  const uniqueCode = generateUniqueCode();
+export async function createCompetitionWithoutTransaction(
+  competitionData: any
+) {
+  try {
+    // Générer un code unique pour la compétition
+    const uniqueCode = generateUniqueCode();
 
-  return await prisma?.competition.create({
-    data: {
-      ...competitionData,
-      uniqueCode,
-      status: competitionData.status || CompetitionStatus.OPEN,
-    },
-  });
+    console.log("Tentative de création de compétition sans transaction...");
+    console.log(
+      "Données:",
+      JSON.stringify(
+        {
+          ...competitionData,
+          uniqueCode,
+        },
+        null,
+        2
+      )
+    );
+
+    // Créer la compétition sans transaction
+    const result = await prismaNoTransactions.competition.create({
+      data: {
+        ...competitionData,
+        uniqueCode,
+      },
+    });
+
+    console.log("Compétition créée avec succès:", result.id);
+    return result;
+  } catch (error) {
+    console.error(
+      "Erreur détaillée lors de la création de la compétition:",
+      error
+    );
+    throw error;
+  }
 }
 
 // Fonction pour récupérer les compétitions d'un organisateur
 export async function getCompetitionsByOrganizerId(organizerId: string) {
-  return await prisma?.competition.findMany({
-    where: {
-      organizerId,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+  try {
+    return await prismaNoTransactions.competition.findMany({
+      where: {
+        organizerId,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Erreur lors de la récupération des compétitions par organisateur:",
+      error
+    );
+    throw error;
+  }
 }
 
 // Fonction pour récupérer une compétition par son ID
 export async function getCompetitionById(id: string) {
-  return await prisma?.competition.findUnique({
-    where: {
-      id,
-    },
-    include: {
-      organizer: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          photoUrl: true,
+  try {
+    return await prismaNoTransactions.competition.findUnique({
+      where: {
+        id,
+      },
+      include: {
+        organizer: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            photoUrl: true,
+          },
         },
       },
-    },
-  });
+    });
+  } catch (error) {
+    console.error(
+      "Erreur lors de la récupération de la compétition par ID:",
+      error
+    );
+    throw error;
+  }
 }
 
 // Fonction pour récupérer une compétition par son code unique
 export async function getCompetitionByUniqueCode(uniqueCode: string) {
-  return await prisma?.competition.findUnique({
-    where: {
-      uniqueCode,
-    },
-    include: {
-      organizer: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          photoUrl: true,
+  try {
+    return await prismaNoTransactions.competition.findUnique({
+      where: {
+        uniqueCode,
+      },
+      include: {
+        organizer: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            photoUrl: true,
+          },
         },
       },
-    },
-  });
+    });
+  } catch (error) {
+    console.error(
+      "Erreur lors de la récupération de la compétition par code unique:",
+      error
+    );
+    throw error;
+  }
 }
 
 // Fonction pour mettre à jour les règles d'une compétition
-export async function updateCompetitionRules(id: string, rules: any) {
-  return await prisma?.competition.update({
-    where: {
-      id,
-    },
-    data: {
-      offsideRule: rules.offsideRule,
-      substitutionRule: rules.substitutionRule,
-      yellowCardRule: rules.yellowCardRule,
-      matchDuration: rules.matchDuration,
-      customRules: rules.customRules,
-    },
-  });
+export async function updateCompetitionRules(id: string, rules: string[]) {
+  try {
+    return await prismaNoTransactions.competition.update({
+      where: {
+        id,
+      },
+      data: {
+        rules: rules.join("\n"),
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Erreur lors de la mise à jour des règles de la compétition:",
+      error
+    );
+    throw error;
+  }
 }
 
 // Fonction pour mettre à jour le profil d'un utilisateur
 export async function updateUserProfile(id: string, userData: any) {
-  return await prisma?.user.update({
-    where: {
-      id,
-    },
-    data: userData,
-  });
+  try {
+    return await prismaNoTransactions.user.update({
+      where: {
+        id,
+      },
+      data: userData,
+    });
+  } catch (error) {
+    console.error(
+      "Erreur lors de la mise à jour du profil utilisateur:",
+      error
+    );
+    throw error;
+  }
 }

@@ -1,7 +1,5 @@
 "use client";
 
-import type React from "react";
-
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -15,9 +13,7 @@ import {
   MapPin,
   CalendarCheck,
   Info,
-  CheckCircle,
   AlertCircle,
-  Eye,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -52,18 +48,14 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/components/ui/use-toast";
 import { COMPETITION_CATEGORIES } from "@/constants/categories";
-import {
-  COMPETITION_RULES,
-  OFFSIDE_RULES,
-  SUBSTITUTION_RULES,
-  YELLOW_CARD_RULES,
-  MATCH_DURATIONS,
-} from "@/constants/competition-rules";
+import { COMPETITION_RULES } from "@/constants/competition-rules";
+import { AnimatedSuccess } from "@/components/animated-success";
 import Image from "next/image";
 
 const formSchema = z
@@ -80,9 +72,6 @@ const formSchema = z
     location: z.string().min(3, {
       message: "Veuillez entrer un lieu valide.",
     }),
-    venue: z.string().min(2, {
-      message: "Veuillez entrer un nom de stade/quartier valide.",
-    }),
     startDate: z.date({
       required_error: "Veuillez sélectionner une date de début.",
     }),
@@ -98,13 +87,7 @@ const formSchema = z
     maxParticipants: z.coerce.number().min(2, {
       message: "Le nombre minimum de participants est 2.",
     }),
-    tournamentFormat: z.string().optional(),
-    offsideRule: z.string().optional(),
-    substitutionRule: z.string().optional(),
-    yellowCardRule: z.string().optional(),
-    matchDuration: z.string().optional(),
-    customRules: z.string().optional(),
-    imageUrl: z.string().optional(),
+    rules: z.array(z.string()).optional(),
   })
   .refine((data) => data.endDate >= data.startDate, {
     message: "La date de fin doit être postérieure ou égale à la date de début",
@@ -125,10 +108,7 @@ export default function CreateCompetitionPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uniqueCode, setUniqueCode] = useState<string | null>(null);
-  const [showUniqueCode, setShowUniqueCode] = useState(false);
   const [activeTab, setActiveTab] = useState("details");
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -137,48 +117,20 @@ export default function CreateCompetitionPage() {
       description: "",
       category: "",
       location: "",
-      venue: "",
       maxParticipants: 10,
-      offsideRule: "ENABLED",
-      substitutionRule: "LIMITED",
-      yellowCardRule: "STANDARD",
-      matchDuration: "STANDARD",
-      customRules: "",
+      rules: [],
     },
   });
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
     try {
-      // Upload image if provided
-      const imageUrl = null;
-      if (imageFile) {
-        // Ici, vous devriez implémenter la logique pour télécharger l'image
-        // Par exemple, en utilisant une fonction uploadImage
-        // imageUrl = await uploadImage(imageFile)
-      }
-
       const response = await fetch("/api/competitions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          ...values,
-          imageUrl,
-        }),
+        body: JSON.stringify(values),
       });
 
       const data = await response.json();
@@ -190,14 +142,6 @@ export default function CreateCompetitionPage() {
       }
 
       setUniqueCode(data.competition.uniqueCode);
-      toast({
-        title: "Compétition créée avec succès!",
-        description: "Votre compétition a été créée avec succès.",
-        variant: "default",
-      });
-
-      // Ne pas rediriger immédiatement pour permettre à l'utilisateur de voir le code unique
-      // router.push('/organizer/dashboard');
     } catch (error) {
       console.error("Erreur:", error);
       toast({
@@ -211,26 +155,15 @@ export default function CreateCompetitionPage() {
     }
   }
 
-  const copyUniqueCode = () => {
-    if (uniqueCode) {
-      navigator.clipboard.writeText(uniqueCode);
-      toast({
-        title: "Code copié!",
-        description: "Le code unique a été copié dans le presse-papier",
-      });
-    }
-  };
-
   const goToNextTab = () => {
     if (activeTab === "details") {
       // Valider les champs de l'onglet détails avant de passer à l'onglet suivant
-      form.trigger(["name", "description", "category", "location", "venue"]);
+      form.trigger(["name", "description", "category", "location"]);
       const hasErrors =
         !!form.formState.errors.name ||
         !!form.formState.errors.description ||
         !!form.formState.errors.category ||
-        !!form.formState.errors.location ||
-        !!form.formState.errors.venue;
+        !!form.formState.errors.location;
 
       if (!hasErrors) {
         setActiveTab("dates");
@@ -241,14 +174,12 @@ export default function CreateCompetitionPage() {
         "endDate",
         "registrationStartDate",
         "registrationEndDate",
-        "maxParticipants",
       ]);
       const hasErrors =
         !!form.formState.errors.startDate ||
         !!form.formState.errors.endDate ||
         !!form.formState.errors.registrationStartDate ||
-        !!form.formState.errors.registrationEndDate ||
-        !!form.formState.errors.maxParticipants;
+        !!form.formState.errors.registrationEndDate;
 
       if (!hasErrors) {
         setActiveTab("rules");
@@ -262,6 +193,16 @@ export default function CreateCompetitionPage() {
     } else if (activeTab === "rules") {
       setActiveTab("dates");
     }
+  };
+
+  const handleViewDetails = () => {
+    if (uniqueCode) {
+      router.push(`/organizer/competitions/${uniqueCode}`);
+    }
+  };
+
+  const handleDashboard = () => {
+    router.push("/organizer/dashboard");
   };
 
   return (
@@ -280,76 +221,11 @@ export default function CreateCompetitionPage() {
             </CardHeader>
             <CardContent className="pt-6">
               {uniqueCode ? (
-                <div className="space-y-6">
-                  <Alert className="bg-green-50 border-green-200">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                    <AlertTitle className="text-green-800">
-                      Compétition créée avec succès!
-                    </AlertTitle>
-                    <AlertDescription className="text-green-700">
-                      Votre compétition a été créée avec succès. Vous pouvez
-                      maintenant partager le code unique avec les participants.
-                    </AlertDescription>
-                  </Alert>
-
-                  <div className="p-6 bg-gray-50 rounded-lg border border-gray-200">
-                    <h3 className="text-lg font-semibold mb-4">
-                      Code unique de la compétition
-                    </h3>
-                    <div className="relative">
-                      <div className="p-4 bg-white rounded-md border border-gray-300 flex justify-between items-center">
-                        <div className="flex items-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setShowUniqueCode(!showUniqueCode)}
-                            className="mr-2"
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            {showUniqueCode ? "Masquer" : "Afficher"}
-                          </Button>
-                          {showUniqueCode ? (
-                            <span className="font-mono text-lg font-bold">
-                              {uniqueCode}
-                            </span>
-                          ) : (
-                            <span className="font-mono text-lg font-bold">
-                              ••••••••••
-                            </span>
-                          )}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={copyUniqueCode}
-                        >
-                          Copier
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-500 mt-4">
-                      Partagez ce code avec les participants pour qu'ils
-                      puissent s'inscrire à cette compétition. Ce code est
-                      unique et ne peut être utilisé que pour cette compétition.
-                    </p>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <Button
-                      variant="outline"
-                      onClick={() => router.push("/organizer/dashboard")}
-                    >
-                      Retour au tableau de bord
-                    </Button>
-                    <Button
-                      onClick={() =>
-                        router.push(`/organizer/competitions/${uniqueCode}`)
-                      }
-                    >
-                      Voir les détails de la compétition
-                    </Button>
-                  </div>
-                </div>
+                <AnimatedSuccess
+                  uniqueCode={uniqueCode}
+                  onViewDetails={handleViewDetails}
+                  onDashboard={handleDashboard}
+                />
               ) : (
                 <Form {...form}>
                   <form
@@ -444,10 +320,10 @@ export default function CreateCompetitionPage() {
                             name="location"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Adresse</FormLabel>
+                                <FormLabel>Lieu</FormLabel>
                                 <FormControl>
                                   <Input
-                                    placeholder="123 Rue du Stade, Abidjan"
+                                    placeholder="Stade Municipal, Abidjan"
                                     {...field}
                                   />
                                 </FormControl>
@@ -455,65 +331,14 @@ export default function CreateCompetitionPage() {
                               </FormItem>
                             )}
                           />
-
-                          <FormField
-                            control={form.control}
-                            name="venue"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Stade / Quartier</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder="Stade Municipal"
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <div className="md:col-span-2">
-                            <FormField
-                              control={form.control}
-                              name="imageUrl"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Image de la compétition</FormLabel>
-                                  <FormControl>
-                                    <div className="flex flex-col items-start gap-4">
-                                      {imagePreview && (
-                                        <div className="relative h-40 w-40 overflow-hidden rounded-md">
-                                          <img
-                                            src={
-                                              imagePreview || "/placeholder.svg"
-                                            }
-                                            alt="Aperçu de l'image"
-                                            className="h-full w-full object-cover"
-                                          />
-                                        </div>
-                                      )}
-                                      <Input
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={handleImageChange}
-                                        className="cursor-pointer"
-                                      />
-                                    </div>
-                                  </FormControl>
-                                  <FormDescription>
-                                    Ajoutez une image représentative pour votre
-                                    compétition (optionnel)
-                                  </FormDescription>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
                         </div>
 
                         <div className="flex justify-end">
-                          <Button type="button" onClick={goToNextTab}>
+                          <Button
+                            type="button"
+                            onClick={goToNextTab}
+                            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                          >
                             Suivant
                           </Button>
                         </div>
@@ -626,9 +451,7 @@ export default function CreateCompetitionPage() {
                             name="startDate"
                             render={({ field }) => (
                               <FormItem className="flex flex-col">
-                                <FormLabel>
-                                  Date de début de la compétition
-                                </FormLabel>
+                                <FormLabel>Date de début</FormLabel>
                                 <Popover>
                                   <PopoverTrigger asChild>
                                     <FormControl>
@@ -681,9 +504,7 @@ export default function CreateCompetitionPage() {
                             name="endDate"
                             render={({ field }) => (
                               <FormItem className="flex flex-col">
-                                <FormLabel>
-                                  Date de fin de la compétition
-                                </FormLabel>
+                                <FormLabel>Date de fin</FormLabel>
                                 <Popover>
                                   <PopoverTrigger asChild>
                                     <FormControl>
@@ -741,45 +562,6 @@ export default function CreateCompetitionPage() {
                                 <FormControl>
                                   <Input type="number" min={2} {...field} />
                                 </FormControl>
-                                <FormDescription>
-                                  Définissez le nombre maximum d'équipes pouvant
-                                  participer à cette compétition
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="tournamentFormat"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Format du tournoi</FormLabel>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  defaultValue={field.value}
-                                >
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Sélectionnez un format" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    {COMPETITION_RULES.map((format) => (
-                                      <SelectItem
-                                        key={format.value}
-                                        value={format.value}
-                                      >
-                                        {format.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <FormDescription>
-                                  Choisissez le format de tournoi qui convient
-                                  le mieux à votre compétition
-                                </FormDescription>
                                 <FormMessage />
                               </FormItem>
                             )}
@@ -794,7 +576,11 @@ export default function CreateCompetitionPage() {
                           >
                             Précédent
                           </Button>
-                          <Button type="button" onClick={goToNextTab}>
+                          <Button
+                            type="button"
+                            onClick={goToNextTab}
+                            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                          >
                             Suivant
                           </Button>
                         </div>
@@ -807,182 +593,72 @@ export default function CreateCompetitionPage() {
                             Règles de la compétition
                           </AlertTitle>
                           <AlertDescription className="text-blue-700">
-                            Définissez les règles spécifiques qui s'appliqueront
-                            à votre compétition.
+                            Sélectionnez les règles qui s'appliquent à votre
+                            compétition. Ces règles seront visibles par tous les
+                            participants.
                           </AlertDescription>
                         </Alert>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <FormField
-                            control={form.control}
-                            name="offsideRule"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Règle du hors-jeu</FormLabel>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  defaultValue={field.value}
-                                >
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Sélectionnez une règle" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    {OFFSIDE_RULES.map((rule) => (
-                                      <SelectItem
-                                        key={rule.value}
-                                        value={rule.value}
-                                      >
-                                        {rule.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <FormDescription>
-                                  {
-                                    OFFSIDE_RULES.find(
-                                      (r) => r.value === field.value
-                                    )?.description
-                                  }
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="substitutionRule"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Règle de remplacement</FormLabel>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  defaultValue={field.value}
-                                >
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Sélectionnez une règle" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    {SUBSTITUTION_RULES.map((rule) => (
-                                      <SelectItem
-                                        key={rule.value}
-                                        value={rule.value}
-                                      >
-                                        {rule.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <FormDescription>
-                                  {
-                                    SUBSTITUTION_RULES.find(
-                                      (r) => r.value === field.value
-                                    )?.description
-                                  }
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="yellowCardRule"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Règle des cartons jaunes</FormLabel>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  defaultValue={field.value}
-                                >
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Sélectionnez une règle" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    {YELLOW_CARD_RULES.map((rule) => (
-                                      <SelectItem
-                                        key={rule.value}
-                                        value={rule.value}
-                                      >
-                                        {rule.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <FormDescription>
-                                  {
-                                    YELLOW_CARD_RULES.find(
-                                      (r) => r.value === field.value
-                                    )?.description
-                                  }
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="matchDuration"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Durée des matchs</FormLabel>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  defaultValue={field.value}
-                                >
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Sélectionnez une durée" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    {MATCH_DURATIONS.map((duration) => (
-                                      <SelectItem
-                                        key={duration.value}
-                                        value={duration.value}
-                                      >
-                                        {duration.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <FormDescription>
-                                  {
-                                    MATCH_DURATIONS.find(
-                                      (d) => d.value === field.value
-                                    )?.description
-                                  }
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-
                         <FormField
                           control={form.control}
-                          name="customRules"
-                          render={({ field }) => (
+                          name="rules"
+                          render={() => (
                             <FormItem>
-                              <FormLabel>Règles personnalisées</FormLabel>
-                              <FormControl>
-                                <Textarea
-                                  placeholder="Ajoutez des règles spécifiques à votre compétition..."
-                                  className="min-h-[120px]"
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                Décrivez toutes les règles supplémentaires
-                                spécifiques à votre compétition (optionnel)
-                              </FormDescription>
+                              <div className="mb-4">
+                                <FormLabel className="text-base">
+                                  Règles de la compétition
+                                </FormLabel>
+                                <FormDescription>
+                                  Sélectionnez les règles qui s'appliquent à
+                                  votre compétition.
+                                </FormDescription>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {COMPETITION_RULES.map((rule) => (
+                                  <FormField
+                                    key={rule.value}
+                                    control={form.control}
+                                    name="rules"
+                                    render={({ field }) => {
+                                      return (
+                                        <FormItem
+                                          key={rule.value}
+                                          className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 hover:bg-slate-50 transition-colors"
+                                        >
+                                          <FormControl>
+                                            <Checkbox
+                                              checked={field.value?.includes(
+                                                rule.value
+                                              )}
+                                              onCheckedChange={(checked) => {
+                                                return checked
+                                                  ? field.onChange([
+                                                      ...(field.value || []),
+                                                      rule.value,
+                                                    ])
+                                                  : field.onChange(
+                                                      field.value?.filter(
+                                                        (value) =>
+                                                          value !== rule.value
+                                                      )
+                                                    );
+                                              }}
+                                            />
+                                          </FormControl>
+                                          <div className="space-y-1 leading-none">
+                                            <FormLabel className="text-sm font-medium">
+                                              {rule.label}
+                                            </FormLabel>
+                                            <FormDescription className="text-xs">
+                                              {rule.description}
+                                            </FormDescription>
+                                          </div>
+                                        </FormItem>
+                                      );
+                                    }}
+                                  />
+                                ))}
+                              </div>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -996,7 +672,11 @@ export default function CreateCompetitionPage() {
                           >
                             Précédent
                           </Button>
-                          <Button type="submit" disabled={isSubmitting}>
+                          <Button
+                            type="submit"
+                            disabled={isSubmitting}
+                            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-all"
+                          >
                             {isSubmitting
                               ? "Création en cours..."
                               : "Créer la compétition"}

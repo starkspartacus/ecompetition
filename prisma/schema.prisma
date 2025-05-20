@@ -1,5 +1,7 @@
 generator client {
   provider = "prisma-client-js"
+  // Désactiver la prise en charge des transactions
+  previewFeatures = []
 }
 
 datasource db {

@@ -2,16 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createCompetitionWithoutTransaction } from "@/lib/db-helpers";
-import prisma from "@/lib/prisma";
-import {
-  type CompetitionCategory,
-  CompetitionStatus,
-  type OffsideRule,
-  type SubstitutionRule,
-  type YellowCardRule,
-  type MatchDuration,
-  type TournamentFormat,
-} from "@prisma/client";
+import prismaNoTransactions from "@/lib/prisma-no-transactions-alt";
 
 export async function POST(request: NextRequest) {
   try {
@@ -89,30 +80,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Créer la compétition
+    console.log("Tentative de création de compétition via API...");
+
+    // Créer la compétition sans transaction
     const competition = await createCompetitionWithoutTransaction({
-      title: data.name,
+      name: data.name,
       description: data.description,
-      address: data.location,
-      venue: data.venue || data.location,
+      location: data.location,
       startDate,
       endDate,
       registrationStartDate,
-      registrationDeadline: registrationEndDate,
+      registrationEndDate,
       maxParticipants: data.maxParticipants,
-      category: data.category as CompetitionCategory,
-      status: CompetitionStatus.OPEN,
-      tournamentFormat:
-        (data.tournamentFormat as TournamentFormat) || undefined,
-      offsideRule: (data.offsideRule as OffsideRule) || undefined,
-      substitutionRule:
-        (data.substitutionRule as SubstitutionRule) || undefined,
-      yellowCardRule: (data.yellowCardRule as YellowCardRule) || undefined,
-      matchDuration: (data.matchDuration as MatchDuration) || undefined,
-      customRules: data.customRules ? JSON.parse(data.customRules) : undefined,
-      imageUrl: data.imageUrl,
+      category: data.category,
+      rules: data.rules || [],
       organizerId: session.user.id,
     });
+
+    console.log("Compétition créée avec succès via API:", competition.id);
 
     return NextResponse.json({
       message: "Compétition créée avec succès",
@@ -154,7 +139,8 @@ export async function GET(request: NextRequest) {
       whereClause.organizerId = session.user.id;
     }
 
-    const competitions = await prisma?.competition.findMany({
+    // Requête simple sans transaction
+    const competitions = await prismaNoTransactions.competition.findMany({
       where: whereClause,
       orderBy: {
         createdAt: "desc",
@@ -165,6 +151,7 @@ export async function GET(request: NextRequest) {
             id: true,
             firstName: true,
             lastName: true,
+            email: true,
             photoUrl: true,
           },
         },
