@@ -10,6 +10,7 @@ datasource db {
 enum UserRole {
   ORGANIZER
   PARTICIPANT
+  ADMIN
 }
 
 enum CompetitionCategory {
@@ -23,10 +24,12 @@ enum CompetitionCategory {
 }
 
 enum CompetitionStatus {
+  DRAFT
   OPEN
   CLOSED
   IN_PROGRESS
   COMPLETED
+  CANCELLED
 }
 
 enum ParticipationStatus {
@@ -39,6 +42,9 @@ enum TournamentFormat {
   ROUND_ROBIN
   GROUPS
   KNOCKOUT
+  SINGLE_ELIMINATION
+  DOUBLE_ELIMINATION
+  SWISS_SYSTEM
 }
 
 enum TournamentPhase {
@@ -55,37 +61,36 @@ enum AuthMethod {
   GOOGLE
 }
 
-// Nouvelles énumérations pour les règles de compétition
 enum OffsideRule {
   ENABLED
   DISABLED
 }
 
 enum SubstitutionRule {
-  LIMITED // Nombre limité de remplacements
-  UNLIMITED // Remplacements illimités
-  FLYING // Remplacements volants (sans arrêt de jeu)
+  LIMITED
+  UNLIMITED
+  FLYING
 }
 
 enum YellowCardRule {
-  STANDARD // Expulsion après 2 cartons jaunes
-  STRICT // Expulsion après 1 carton jaune
-  LENIENT // Expulsion après 3 cartons jaunes
+  STANDARD
+  STRICT
+  LENIENT
 }
 
 enum MatchDuration {
-  SHORT // Ex: 2x30 minutes
-  STANDARD // Ex: 2x45 minutes
-  EXTENDED // Ex: 2x60 minutes
+  SHORT
+  STANDARD
+  EXTENDED
 }
 
 model User {
   id                 String               @id @default(auto()) @map("_id") @db.ObjectId
   email              String?              @unique
   password           String?
-  phoneNumber        String?              @unique  // Ajout de @unique ici
-  phoneCountryCode   String?              // Code pays pour le téléphone
-  countryCode        String               // Code du pays de l'utilisateur
+  phoneNumber        String?              @unique
+  phoneCountryCode   String?
+  countryCode        String
   firstName          String
   lastName           String
   dateOfBirth        DateTime
@@ -95,20 +100,20 @@ model User {
   photoUrl           String?
   role               UserRole
   preferredAuthMethod AuthMethod          @default(EMAIL)
-  competitionCategory CompetitionCategory? // Only for ORGANIZER
-  bio                String?              // Biographie de l'utilisateur
-  socialLinks        Json?                // Liens sociaux (Twitter, Instagram, etc.)
-  lastLogin          DateTime?            // Dernière connexion
+  competitionCategory CompetitionCategory?
+  bio                String?
+  socialLinks        Json?
+  lastLogin          DateTime?
   isVerified         Boolean              @default(false)
-  verificationToken  String?              // Token pour vérifier l'email/téléphone
-  resetToken         String?              // Token pour réinitialiser le mot de passe
-  resetTokenExpiry   DateTime?            // Date d'expiration du token de réinitialisation
+  verificationToken  String?
+  resetToken         String?
+  resetTokenExpiry   DateTime?
 
   // Relations
   organizerCompetitions Competition[]     @relation("OrganizedCompetitions")
   participantTeams      Team[]            @relation("TeamParticipant")
   participations        Participation[]   @relation("ParticipantRequests")
-  notifications         Notification[]    // Notifications de l'utilisateur
+  notifications         Notification[]
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   
@@ -116,7 +121,6 @@ model User {
   sessions              Session[]
 
   @@unique([email, countryCode])
-  // Nous gardons cette contrainte composée pour la compatibilité
   @@unique([phoneNumber, phoneCountryCode, countryCode])
 }
 
@@ -163,26 +167,26 @@ model Competition {
   venue               String
   maxParticipants     Int
   imageUrl            String?
-  bannerUrl           String?            // Bannière pour la compétition
+  bannerUrl           String?
   category            CompetitionCategory
-  registrationStartDate DateTime          // Nouvelle date de début d'inscription
+  registrationStartDate DateTime
   registrationDeadline DateTime
-  startDate           DateTime?          // Date de début de la compétition
-  endDate             DateTime?          // Date de fin de la compétition
-  description         String?            // Description détaillée
-  rules               String?            // Règles de la compétition
-  prizes              Json?              // Informations sur les prix
+  startDate           DateTime?
+  endDate             DateTime?
+  description         String?
+  rules               String?
+  prizes              Json?
   uniqueCode          String             @unique
   status              CompetitionStatus  @default(OPEN)
   tournamentFormat    TournamentFormat?
-  isPublic            Boolean            @default(true) // Si la compétition est publique ou privée
+  isPublic            Boolean            @default(true)
   
-  // Nouvelles règles de compétition
-  offsideRule         OffsideRule?       // Règle de hors-jeu
-  substitutionRule    SubstitutionRule?  // Règle de remplacement
-  yellowCardRule      YellowCardRule?    // Règle de carton jaune
-  matchDuration       MatchDuration?     // Durée des matchs
-  customRules         Json?              // Règles personnalisées supplémentaires
+  // Règles de compétition
+  offsideRule         OffsideRule?
+  substitutionRule    SubstitutionRule?
+  yellowCardRule      YellowCardRule?
+  matchDuration       MatchDuration?
+  customRules         Json?
   
   // Relations
   organizerId         String             @db.ObjectId
@@ -199,9 +203,9 @@ model Competition {
 model Team {
   id            String    @id @default(auto()) @map("_id") @db.ObjectId
   name          String
-  logoUrl       String?   // Logo de l'équipe
-  colors        String?   // Couleurs de l'équipe
-  description   String?   // Description de l'équipe
+  logoUrl       String?
+  colors        String?
+  description   String?
   
   // Relations
   competitionId String    @db.ObjectId
@@ -222,10 +226,10 @@ model Player {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   name        String
   age         Int
-  position    String?  // Position du joueur
-  number      Int?     // Numéro du joueur
-  photoUrl    String?  // Photo du joueur
-  stats       Json?    // Statistiques du joueur
+  position    String?
+  number      Int?
+  photoUrl    String?
+  stats       Json?
   
   // Relations
   teamId      String   @db.ObjectId
@@ -238,8 +242,8 @@ model Player {
 model Participation {
   id            String             @id @default(auto()) @map("_id") @db.ObjectId
   status        ParticipationStatus @default(PENDING)
-  message       String?            // Message de demande de participation
-  responseMessage String?          // Message de réponse de l'organisateur
+  message       String?
+  responseMessage String?
   
   // Relations
   competitionId String             @db.ObjectId
@@ -261,9 +265,9 @@ model Match {
   awayScore     Int?
   played        Boolean         @default(false)
   scheduledDate DateTime?
-  location      String?         // Lieu du match
-  highlights    String?         // Lien vers les temps forts
-  stats         Json?           // Statistiques du match
+  location      String?
+  highlights    String?
+  stats         Json?
   
   // Relations
   competitionId String          @db.ObjectId
@@ -295,11 +299,11 @@ model Group {
 
 model Notification {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  type        String   // Type de notification
-  title       String   // Titre de la notification
-  message     String   // Message de la notification
+  type        String
+  title       String
+  message     String
   isRead      Boolean  @default(false)
-  link        String?  // Lien associé à la notification
+  link        String?
   
   // Relations
   userId      String   @db.ObjectId

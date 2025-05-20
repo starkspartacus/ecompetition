@@ -1,15 +1,17 @@
+import { CompetitionCategory } from "@prisma/client";
+
 export const COMPETITION_CATEGORIES = [
-  { value: "FOOTBALL", label: "Football" },
-  { value: "BASKETBALL", label: "Basketball" },
-  { value: "VOLLEYBALL", label: "Volleyball" },
-  { value: "HANDBALL", label: "Handball" },
-  { value: "TENNIS", label: "Tennis" },
-  { value: "MARACANA", label: "Maracana" },
-  { value: "OTHER", label: "Autre" },
-]
+  { value: CompetitionCategory.FOOTBALL, label: "Football" },
+  { value: CompetitionCategory.BASKETBALL, label: "Basketball" },
+  { value: CompetitionCategory.VOLLEYBALL, label: "Volleyball" },
+  { value: CompetitionCategory.HANDBALL, label: "Handball" },
+  { value: CompetitionCategory.TENNIS, label: "Tennis" },
+  { value: CompetitionCategory.MARACANA, label: "Maracana" },
+  { value: CompetitionCategory.OTHER, label: "Autre" },
+];
 
 export const TOURNAMENT_FORMATS = [
   { value: "ROUND_ROBIN", label: "Championnat (tous contre tous)" },
   { value: "GROUPS", label: "Phases de groupes" },
   { value: "KNOCKOUT", label: "Élimination directe" },
-]
+];

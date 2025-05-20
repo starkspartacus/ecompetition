@@ -800,7 +800,7 @@ export default function SettingsPage() {
                                     </SelectTrigger>
                                   </FormControl>
                                   <SelectContent>
-                                    {OFFSIDE_RULES.map((rule) => (
+                                    {OFFSIDE_RULES.map((rule: any) => (
                                       <SelectItem
                                         key={rule.value}
                                         value={rule.value}
@@ -813,7 +813,7 @@ export default function SettingsPage() {
                                 <FormDescription>
                                   {
                                     OFFSIDE_RULES.find(
-                                      (r) => r.value === field.value
+                                      (r: any) => r.value === field.value
                                     )?.description
                                   }
                                 </FormDescription>
@@ -841,7 +841,7 @@ export default function SettingsPage() {
                                     </SelectTrigger>
                                   </FormControl>
                                   <SelectContent>
-                                    {SUBSTITUTION_RULES.map((rule) => (
+                                    {SUBSTITUTION_RULES.map((rule: any) => (
                                       <SelectItem
                                         key={rule.value}
                                         value={rule.value}

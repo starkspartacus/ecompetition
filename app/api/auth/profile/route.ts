@@ -49,27 +49,32 @@ export async function PUT(req: Request) {
       const usersCollection = db.collection("User");
 
       // Mettre à jour le profil de l'utilisateur
+      const updateData: Record<string, any> = {
+        firstName,
+        lastName,
+        email,
+        phoneNumber,
+        countryCode,
+        address,
+        city,
+        commune,
+        bio,
+        updatedAt: new Date(),
+      };
+
+      // Ajouter competitionCategory seulement si l'utilisateur est un organisateur
+      if (session.user.role === "ORGANIZER" && competitionCategory) {
+        updateData.competitionCategory = competitionCategory;
+      }
+
+      // Ajouter photoUrl seulement si elle est fournie
+      if (photoUrl) {
+        updateData.photoUrl = photoUrl;
+      }
+
       const result = await usersCollection.updateOne(
         { _id: toObjectId(session.user.id) },
-        {
-          $set: {
-            firstName,
-            lastName,
-            email,
-            phoneNumber,
-            countryCode,
-            address,
-            city,
-            commune,
-            bio,
-            competitionCategory:
-              session.user.role === "ORGANIZER"
-                ? competitionCategory
-                : undefined,
-            photoUrl,
-            updatedAt: new Date(),
-          },
-        }
+        { $set: updateData }
       );
 
       if (result.acknowledged) {
@@ -95,24 +100,33 @@ export async function PUT(req: Request) {
       console.error("Erreur MongoDB lors de la mise à jour du profil:", error);
 
       // Fallback à Prisma si MongoDB échoue
+      // Utiliser une approche typée pour éviter les erreurs TypeScript
+      const updateData: any = {};
+
+      if (firstName !== undefined) updateData.firstName = firstName;
+      if (lastName !== undefined) updateData.lastName = lastName;
+      if (email !== undefined) updateData.email = email;
+      if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
+      if (countryCode !== undefined) updateData.countryCode = countryCode;
+      if (address !== undefined) updateData.address = address;
+      if (city !== undefined) updateData.city = city;
+      if (commune !== undefined) updateData.commune = commune;
+      if (bio !== undefined) updateData.bio = bio;
+      if (photoUrl !== undefined) updateData.photoUrl = photoUrl;
+
+      // Ajouter competitionCategory seulement si l'utilisateur est un organisateur
+      if (
+        session.user.role === "ORGANIZER" &&
+        competitionCategory !== undefined
+      ) {
+        updateData.competitionCategory = competitionCategory;
+      }
+
       const updatedUser = await prisma?.user.update({
         where: {
           id: session.user.id,
         },
-        data: {
-          firstName,
-          lastName,
-          email,
-          phoneNumber,
-          countryCode,
-          address,
-          city,
-          commune,
-          bio,
-          competitionCategory:
-            session.user.role === "ORGANIZER" ? competitionCategory : undefined,
-          photoUrl,
-        },
+        data: updateData,
       });
 
       return NextResponse.json({

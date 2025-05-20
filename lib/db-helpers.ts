@@ -1,150 +1,166 @@
+import prisma from "./prisma";
+import { generateUniqueCode } from "./utils";
 import {
-  getDb,
-  toMongoDocument,
-  fromMongoDocument,
-  toObjectId,
-} from "./mongodb";
+  type CompetitionCategory,
+  CompetitionStatus,
+  type OffsideRule,
+  type SubstitutionRule,
+  type YellowCardRule,
+  type MatchDuration,
+  type TournamentFormat,
+} from "@prisma/client";
 
-/**
- * Fonction utilitaire pour créer un utilisateur sans utiliser de transaction
- */
+// Fonction pour créer un utilisateur sans transaction
 export async function createUserWithoutTransaction(userData: any) {
-  try {
-    // Utiliser directement MongoDB
-    const db = await getDb();
-    const usersCollection = db.collection("User");
-
-    // Préparer les données pour MongoDB
-    const mongoData = toMongoDocument(userData);
-
-    // Insérer l'utilisateur
-    const result = await usersCollection.insertOne(mongoData);
-
-    if (result.acknowledged) {
-      // Récupérer l'utilisateur créé
-      const user = await usersCollection.findOne({ _id: result.insertedId });
-      return fromMongoDocument(user);
-    }
-
-    throw new Error("Échec de la création de l'utilisateur");
-  } catch (error) {
-    console.error("Erreur lors de la création de l'utilisateur:", error);
-    throw error;
-  }
+  return await prisma?.user.create({
+    data: userData,
+  });
 }
 
-/**
- * Fonction utilitaire pour créer une compétition sans utiliser de transaction
- */
-export async function createCompetitionWithoutTransaction(
-  competitionData: any
-) {
-  try {
-    // Utiliser directement MongoDB
-    const db = await getDb();
-    const competitionsCollection = db.collection("Competition");
-
-    // Préparer les données pour MongoDB
-    const mongoData = toMongoDocument(competitionData);
-
-    // Convertir organizerId en ObjectId
-    if (mongoData.organizerId) {
-      mongoData.organizerId = toObjectId(mongoData.organizerId);
-    }
-
-    // Insérer la compétition
-    const result = await competitionsCollection.insertOne(mongoData);
-
-    if (result.acknowledged) {
-      // Récupérer la compétition créée
-      const competition = await competitionsCollection.findOne({
-        _id: result.insertedId,
-      });
-      return fromMongoDocument(competition);
-    }
-
-    throw new Error("Échec de la création de la compétition");
-  } catch (error) {
-    console.error("Erreur lors de la création de la compétition:", error);
-    throw error;
-  }
+// Fonction pour vérifier si un email existe déjà
+export async function emailExists(email: string) {
+  const user = await prisma?.user.findUnique({
+    where: {
+      email,
+    },
+  });
+  return !!user;
 }
 
-/**
- * Fonction utilitaire pour créer une participation sans utiliser de transaction
- */
-export async function createParticipationWithoutTransaction(
-  participationData: any
-) {
-  try {
-    // Utiliser directement MongoDB
-    const db = await getDb();
-    const participationsCollection = db.collection("Participation");
-
-    // Préparer les données pour MongoDB
-    const mongoData = toMongoDocument(participationData);
-
-    // Convertir les IDs en ObjectId
-    if (mongoData.competitionId) {
-      mongoData.competitionId = toObjectId(mongoData.competitionId);
-    }
-    if (mongoData.participantId) {
-      mongoData.participantId = toObjectId(mongoData.participantId);
-    }
-
-    // Insérer la participation
-    const result = await participationsCollection.insertOne(mongoData);
-
-    if (result.acknowledged) {
-      // Récupérer la participation créée
-      const participation = await participationsCollection.findOne({
-        _id: result.insertedId,
-      });
-      return fromMongoDocument(participation);
-    }
-
-    throw new Error("Échec de la création de la participation");
-  } catch (error) {
-    console.error("Erreur lors de la création de la participation:", error);
-    throw error;
-  }
+// Fonction pour vérifier si un numéro de téléphone existe déjà
+export async function phoneNumberExists(phoneNumber: string) {
+  const user = await prisma?.user.findUnique({
+    where: {
+      phoneNumber,
+    },
+  });
+  return !!user;
 }
 
-/**
- * Fonction utilitaire pour créer une équipe sans utiliser de transaction
- */
-export async function createTeamWithoutTransaction(teamData: any) {
-  try {
-    // Utiliser directement MongoDB
-    const db = await getDb();
-    const teamsCollection = db.collection("Team");
+// Fonction pour récupérer un utilisateur par son email
+export async function getUserByEmail(email: string) {
+  return await prisma?.user.findUnique({
+    where: {
+      email,
+    },
+  });
+}
 
-    // Préparer les données pour MongoDB
-    const mongoData = toMongoDocument(teamData);
+// Fonction pour récupérer un utilisateur par son ID
+export async function getUserById(id: string) {
+  return await prisma?.user.findUnique({
+    where: {
+      id,
+    },
+  });
+}
 
-    // Convertir les IDs en ObjectId
-    if (mongoData.competitionId) {
-      mongoData.competitionId = toObjectId(mongoData.competitionId);
-    }
-    if (mongoData.ownerId) {
-      mongoData.ownerId = toObjectId(mongoData.ownerId);
-    }
-    if (mongoData.groupId) {
-      mongoData.groupId = toObjectId(mongoData.groupId);
-    }
+// Fonction pour créer une compétition sans transaction
+export async function createCompetitionWithoutTransaction(competitionData: {
+  title: string;
+  description: string;
+  address: string;
+  venue: string;
+  startDate: Date;
+  endDate: Date;
+  registrationStartDate: Date;
+  registrationDeadline: Date;
+  maxParticipants: number;
+  category: CompetitionCategory;
+  status?: CompetitionStatus;
+  tournamentFormat?: TournamentFormat;
+  offsideRule?: OffsideRule;
+  substitutionRule?: SubstitutionRule;
+  yellowCardRule?: YellowCardRule;
+  matchDuration?: MatchDuration;
+  customRules?: any;
+  imageUrl?: string;
+  organizerId: string;
+}) {
+  // Générer un code unique pour la compétition
+  const uniqueCode = generateUniqueCode();
 
-    // Insérer l'équipe
-    const result = await teamsCollection.insertOne(mongoData);
+  return await prisma?.competition.create({
+    data: {
+      ...competitionData,
+      uniqueCode,
+      status: competitionData.status || CompetitionStatus.OPEN,
+    },
+  });
+}
 
-    if (result.acknowledged) {
-      // Récupérer l'équipe créée
-      const team = await teamsCollection.findOne({ _id: result.insertedId });
-      return fromMongoDocument(team);
-    }
+// Fonction pour récupérer les compétitions d'un organisateur
+export async function getCompetitionsByOrganizerId(organizerId: string) {
+  return await prisma?.competition.findMany({
+    where: {
+      organizerId,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+}
 
-    throw new Error("Échec de la création de l'équipe");
-  } catch (error) {
-    console.error("Erreur lors de la création de l'équipe:", error);
-    throw error;
-  }
+// Fonction pour récupérer une compétition par son ID
+export async function getCompetitionById(id: string) {
+  return await prisma?.competition.findUnique({
+    where: {
+      id,
+    },
+    include: {
+      organizer: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          photoUrl: true,
+        },
+      },
+    },
+  });
+}
+
+// Fonction pour récupérer une compétition par son code unique
+export async function getCompetitionByUniqueCode(uniqueCode: string) {
+  return await prisma?.competition.findUnique({
+    where: {
+      uniqueCode,
+    },
+    include: {
+      organizer: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          photoUrl: true,
+        },
+      },
+    },
+  });
+}
+
+// Fonction pour mettre à jour les règles d'une compétition
+export async function updateCompetitionRules(id: string, rules: any) {
+  return await prisma?.competition.update({
+    where: {
+      id,
+    },
+    data: {
+      offsideRule: rules.offsideRule,
+      substitutionRule: rules.substitutionRule,
+      yellowCardRule: rules.yellowCardRule,
+      matchDuration: rules.matchDuration,
+      customRules: rules.customRules,
+    },
+  });
+}
+
+// Fonction pour mettre à jour le profil d'un utilisateur
+export async function updateUserProfile(id: string, userData: any) {
+  return await prisma?.user.update({
+    where: {
+      id,
+    },
+    data: userData,
+  });
 }
