@@ -1,8 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { createCompetitionWithoutTransaction } from "@/lib/db-helpers";
-import prismaNoTransactions from "@/lib/prisma-no-transactions-alt";
+// Importer l'adaptateur au lieu de Prisma
+const dbAdapter = require("@/lib/db-adapter");
 
 export async function POST(request: NextRequest) {
   try {
@@ -82,8 +82,8 @@ export async function POST(request: NextRequest) {
 
     console.log("Tentative de création de compétition via API...");
 
-    // Créer la compétition sans transaction
-    const competition = await createCompetitionWithoutTransaction({
+    // Créer la compétition avec l'adaptateur MongoDB
+    const competition = await dbAdapter.createCompetition({
       name: data.name,
       description: data.description,
       location: data.location,
@@ -95,6 +95,7 @@ export async function POST(request: NextRequest) {
       category: data.category,
       rules: data.rules || [],
       organizerId: session.user.id,
+      status: "DRAFT", // Statut par défaut
     });
 
     console.log("Compétition créée avec succès via API:", competition.id);
@@ -124,39 +125,25 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status");
     const category = searchParams.get("category");
 
-    const whereClause: any = {};
+    const filter: any = {};
 
     if (status) {
-      whereClause.status = status;
+      filter.status = status;
     }
 
     if (category) {
-      whereClause.category = category;
+      filter.category = category;
     }
 
     // Si l'utilisateur est un organisateur, ne montrer que ses compétitions
     if (session.user.role === "ORGANIZER") {
-      whereClause.organizerId = session.user.id;
+      filter.organizerId = session.user.id;
     }
 
-    // Requête simple sans transaction
-    const competitions = await prismaNoTransactions.competition.findMany({
-      where: whereClause,
-      orderBy: {
-        createdAt: "desc",
-      },
-      include: {
-        organizer: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            photoUrl: true,
-          },
-        },
-      },
-    });
+    // Récupérer les compétitions avec l'adaptateur MongoDB
+    const competitions = await dbAdapter.getCompetitionsByOrganizerId(
+      session.user.id
+    );
 
     return NextResponse.json({ competitions });
   } catch (error) {
