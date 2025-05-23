@@ -12,6 +12,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
     }
 
+    if (!session.user.id) {
+      return NextResponse.json(
+        { message: "ID utilisateur manquant dans la session" },
+        { status: 400 }
+      );
+    }
+
+    console.log(`Utilisateur trouvé par email, ID: ${session.user.id}`);
+
     const { competitionId, uniqueCode, message } = await req.json();
 
     if (!competitionId || !uniqueCode) {
@@ -51,6 +60,7 @@ export async function POST(req: Request) {
 
     // Vérifier si la compétition est ouverte aux inscriptions
     if (
+      competition.status !== "OPEN" &&
       competition.status !== "PUBLISHED" &&
       competition.status !== "REGISTRATION_OPEN"
     ) {
@@ -68,7 +78,9 @@ export async function POST(req: Request) {
     const registrationStartDate = competition.registrationStartDate
       ? new Date(competition.registrationStartDate)
       : null;
-    const registrationEndDate = competition.registrationEndDate
+    const registrationEndDate = competition.registrationDeadline
+      ? new Date(competition.registrationDeadline)
+      : competition.registrationEndDate
       ? new Date(competition.registrationEndDate)
       : null;
 

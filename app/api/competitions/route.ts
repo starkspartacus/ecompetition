@@ -1,259 +1,180 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createCompetition } from "@/lib/competition-service";
-import { CompetitionStatus } from "@/lib/prisma-schema";
-import { connectDB } from "@/lib/mongodb-client";
-import { uploadImage } from "@/lib/blob";
+import { getDb } from "@/lib/mongodb";
+import { ObjectId } from "mongodb";
 
-// POST: Créer une nouvelle compétition
-export async function POST(request: NextRequest) {
+export async function POST(req: Request) {
   try {
-    // Vérifier l'authentification
     const session = await getServerSession(authOptions);
+
     if (!session) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+      return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
     }
 
-    console.log("Session utilisateur:", session.user);
-
-    // Récupérer l'ID de l'utilisateur
-    let userId = session.user.id;
-    if (!userId && session.user.email) {
-      console.log(
-        `ID utilisateur non trouvé dans la session, recherche par email: ${session.user.email}`
-      );
-
-      // Établir la connexion à MongoDB
-      const db = await connectDB();
-
-      // Rechercher l'utilisateur par email
-      const user = await db
-        .collection("User")
-        .findOne({ email: session.user.email });
-
-      if (user && user._id) {
-        userId = user._id.toString();
-        console.log(`Utilisateur trouvé par email, ID: ${userId}`);
-      } else {
-        // Essayer de lister tous les utilisateurs pour déboguer
-        console.log(
-          "Utilisateur non trouvé, liste des utilisateurs disponibles:"
-        );
-        const users = await db.collection("User").find({}).limit(10).toArray();
-        console.log(`${users.length} utilisateurs trouvés:`);
-        users.forEach((u, i) => {
-          console.log(
-            `Utilisateur ${i + 1}: ID=${u._id}, Email=${u.email || "N/A"}`
-          );
-        });
-      }
-    }
-
+    const userId = session.user?.id;
     if (!userId) {
-      console.log("Impossible de déterminer l'ID de l'utilisateur");
       return NextResponse.json(
-        { error: "Impossible de déterminer l'ID de l'utilisateur" },
+        { message: "ID utilisateur non trouvé" },
         { status: 400 }
       );
     }
 
-    // Vérifier si la requête est multipart/form-data
-    const contentType = request.headers.get("content-type") || "";
-    if (contentType.includes("multipart/form-data")) {
-      // Traiter les données du formulaire multipart
-      const formData = await request.formData();
+    const data = await req.json();
 
-      // Extraire les données de base
-      const title = formData.get("title") as string;
-      const description = formData.get("description") as string;
-      const category = formData.get("category") as string;
-      const country = formData.get("country") as string;
-      const city = formData.get("city") as string;
-      const commune = formData.get("commune") as string;
-      const address = formData.get("address") as string;
-      const venue = formData.get("venue") as string;
-      const maxParticipantsStr = formData.get("maxParticipants") as string;
-      const maxParticipants = maxParticipantsStr
-        ? Number.parseInt(maxParticipantsStr, 10)
-        : 0;
-      const tournamentFormat = formData.get("tournamentFormat") as string;
-      const isPublicStr = formData.get("isPublic") as string;
-      const isPublic = isPublicStr === "true";
+    // Créer la compétition
+    const competition = await createCompetition({
+      title: data.title,
+      description: data.description,
+      category: data.category,
+      country: data.country,
+      city: data.city,
+      commune: data.commune,
+      address: data.address,
+      venue: data.venue,
+      registrationStartDate: new Date(data.registrationStartDate),
+      registrationDeadline: new Date(data.registrationDeadline),
+      startDate: new Date(data.startDate),
+      endDate: new Date(data.endDate),
+      maxParticipants: data.maxParticipants,
+      imageUrl: data.imageUrl,
+      bannerUrl: data.bannerUrl,
+      organizerId: userId,
+      status: data.status || "DRAFT",
+      tournamentFormat: data.tournamentFormat,
+      isPublic: data.isPublic !== undefined ? data.isPublic : true,
+      rules: data.rules || [],
+    });
 
-      // Extraire les dates
-      const registrationStartDateStr = formData.get(
-        "registrationStartDate"
-      ) as string;
-      const registrationDeadlineStr = formData.get(
-        "registrationDeadline"
-      ) as string;
-      const startDateStr = formData.get("startDate") as string;
-      const endDateStr = formData.get("endDate") as string;
-
-      const registrationStartDate = new Date(registrationStartDateStr);
-      const registrationDeadline = new Date(registrationDeadlineStr);
-      const startDate = new Date(startDateStr);
-      const endDate = new Date(endDateStr);
-
-      // Extraire les règles - Correction du traitement des règles
-      const rulesStr = formData.get("rules") as string;
-      console.log("Règles reçues:", rulesStr);
-
-      // Traiter les règles comme une chaîne séparée par des virgules
-      let rules = [];
-      if (rulesStr) {
-        // Vérifier si la chaîne est au format JSON
-        if (rulesStr.startsWith("[") && rulesStr.endsWith("]")) {
-          try {
-            rules = JSON.parse(rulesStr);
-          } catch (error) {
-            console.error("Erreur lors du parsing JSON des règles:", error);
-            // Fallback: traiter comme une chaîne séparée par des virgules
-            rules = rulesStr.split(",").map((rule) => rule.trim());
-          }
-        } else {
-          // Traiter comme une chaîne séparée par des virgules
-          rules = rulesStr.split(",").map((rule) => rule.trim());
-        }
-      }
-
-      console.log("Règles traitées:", rules);
-
-      // Traiter les images
-      const imageFile = formData.get("image") as File;
-      const bannerFile = formData.get("banner") as File;
-
-      let imageUrl = null;
-      let bannerUrl = null;
-
-      // Télécharger l'image principale si elle existe
-      if (imageFile && imageFile.size > 0) {
-        try {
-          imageUrl = await uploadImage(imageFile);
-          console.log(`✅ Image téléchargée avec succès: ${imageUrl}`);
-        } catch (error) {
-          console.error("❌ Erreur lors du téléchargement de l'image:", error);
-        }
-      }
-
-      // Télécharger la bannière si elle existe
-      if (bannerFile && bannerFile.size > 0) {
-        try {
-          bannerUrl = await uploadImage(bannerFile);
-          console.log(`✅ Bannière téléchargée avec succès: ${bannerUrl}`);
-        } catch (error) {
-          console.error(
-            "❌ Erreur lors du téléchargement de la bannière:",
-            error
-          );
-        }
-      }
-
-      // Créer la compétition
-      console.log("Tentative de création de compétition via API...");
-      const competition = await createCompetition({
-        title,
-        description,
-        category,
-        country,
-        city,
-        commune,
-        address,
-        venue,
-        registrationStartDate,
-        registrationDeadline,
-        startDate,
-        endDate,
-        maxParticipants,
-        imageUrl,
-        bannerUrl,
-        organizerId: userId,
-        status: CompetitionStatus.OPEN,
-        tournamentFormat,
-        isPublic,
-        rules,
-      });
-
-      return NextResponse.json({
-        message: "Compétition créée avec succès",
-        competition: {
-          id: competition.id,
-          title: competition.title,
-          status: competition.status,
-          uniqueCode: competition.uniqueCode,
-        },
-      });
-    } else {
-      // Traiter les données JSON
-      const data = await request.json();
-
-      // Créer la compétition
-      const competition = await createCompetition({
-        ...data,
-        organizerId: userId,
-      });
-
-      return NextResponse.json({
-        message: "Compétition créée avec succès",
-        competition: {
-          id: competition.id,
-          title: competition.title,
-          status: competition.status,
-          uniqueCode: competition.uniqueCode,
-        },
-      });
-    }
+    return NextResponse.json({ competition });
   } catch (error) {
     console.error("Erreur lors de la création de la compétition:", error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erreur lors de la création de la compétition",
+        message:
+          "Une erreur est survenue lors de la création de la compétition",
+        error: String(error),
       },
       { status: 500 }
     );
   }
 }
 
-// GET: Récupérer toutes les compétitions de l'organisateur
-export async function GET(request: NextRequest) {
+export async function GET(req: Request) {
   try {
-    // Vérifier l'authentification
     const session = await getServerSession(authOptions);
+
     if (!session) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+      return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
     }
 
-    // Récupérer l'ID de l'utilisateur
-    const userId = session.user.id;
+    const userId = session.user?.id;
     if (!userId) {
       return NextResponse.json(
-        { error: "ID utilisateur non trouvé" },
+        { message: "ID utilisateur non trouvé" },
         { status: 400 }
       );
     }
 
-    // Établir la connexion à MongoDB
-    const db = await connectDB();
+    // Récupérer les compétitions depuis MongoDB
+    const db = await getDb();
 
-    // Récupérer les compétitions de l'organisateur
-    const competitions = await db
-      .collection("Competition")
-      .find({ organizerId: userId })
-      .toArray();
+    // Essayer les deux collections possibles
+    let competitions: any[] = [];
+    let collectionName = "";
 
-    return NextResponse.json({ competitions });
+    try {
+      // Essayer d'abord "Competition" (majuscule)
+      const competitionsCollection = db.collection("Competition");
+      competitions = await competitionsCollection
+        .find({ organizerId: userId })
+        .sort({ createdAt: -1 })
+        .toArray();
+      collectionName = "Competition";
+
+      // Si aucune compétition n'est trouvée, essayer "competitions" (minuscule)
+      if (competitions.length === 0) {
+        const altCollection = db.collection("competitions");
+        const altCompetitions = await altCollection
+          .find({ organizerId: userId })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        if (altCompetitions.length > 0) {
+          competitions = altCompetitions;
+          collectionName = "competitions";
+        }
+      }
+    } catch (error) {
+      console.error("Erreur lors de la recherche dans la collection:", error);
+      // Essayer la collection alternative si la première échoue
+      try {
+        const altCollection = db.collection("competitions");
+        competitions = await altCollection
+          .find({ organizerId: userId })
+          .sort({ createdAt: -1 })
+          .toArray();
+        collectionName = "competitions";
+      } catch (innerError) {
+        console.error(
+          "Erreur lors de la recherche dans la collection alternative:",
+          innerError
+        );
+      }
+    }
+
+    console.log(
+      `Compétitions trouvées dans la collection "${collectionName}" pour l'organisateur ${userId}:`,
+      competitions.length
+    );
+
+    // Normaliser les données pour la réponse
+    const normalizedCompetitions = competitions.map((competition) => ({
+      id:
+        competition._id instanceof ObjectId
+          ? competition._id.toString()
+          : String(competition._id),
+      title: competition.title || competition.name || "Sans titre",
+      description: competition.description || "",
+      category: competition.category || "",
+      country: competition.country || "",
+      city: competition.city || "",
+      commune: competition.commune || null,
+      address: competition.address || "",
+      venue: competition.venue || "",
+      registrationStartDate:
+        competition.registrationStartDate?.toISOString() || null,
+      registrationDeadline:
+        competition.registrationDeadline?.toISOString() || null,
+      startDate: competition.startDate?.toISOString() || null,
+      endDate: competition.endDate?.toISOString() || null,
+      maxParticipants: competition.maxParticipants || 0,
+      imageUrl: competition.imageUrl || null,
+      bannerUrl: competition.bannerUrl || null,
+      status: competition.status || "DRAFT",
+      tournamentFormat: competition.tournamentFormat || null,
+      isPublic:
+        competition.isPublic !== undefined ? competition.isPublic : true,
+      rules: competition.rules || [],
+      uniqueCode: competition.uniqueCode || "",
+      createdAt:
+        competition.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt:
+        competition.updatedAt?.toISOString() || new Date().toISOString(),
+      participants: competition.participants || 0,
+      teams: competition.teams || 0,
+      matches: competition.matches || 0,
+    }));
+
+    return NextResponse.json({ competitions: normalizedCompetitions });
   } catch (error) {
     console.error("Erreur lors de la récupération des compétitions:", error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erreur lors de la récupération des compétitions",
+        message:
+          "Une erreur est survenue lors de la récupération des compétitions",
+        error: String(error),
       },
       { status: 500 }
     );

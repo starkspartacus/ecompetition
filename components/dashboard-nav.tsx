@@ -19,6 +19,18 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface DashboardNavProps {
   user: {
@@ -121,92 +133,90 @@ export function DashboardNav({ user }: DashboardNavProps) {
 
       {/* Actions et profil */}
       <div className="flex items-center gap-4">
-        {/* Notifications */}
-        <div className="relative">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              setShowNotifications(!showNotifications);
-              if (notificationCount > 0) setNotificationCount(0);
-            }}
-            className="relative"
-            aria-label="Notifications"
-          >
-            <Bell size={20} />
-            {notificationCount > 0 && (
-              <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
-                {notificationCount}
-              </span>
-            )}
-          </Button>
-
-          {showNotifications && (
-            <div className="absolute right-0 top-12 w-80 rounded-lg border bg-white p-4 shadow-lg dark:border-gray-700 dark:bg-gray-800">
-              <h3 className="mb-2 font-semibold">Notifications</h3>
-              <div className="space-y-2">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Aucune nouvelle notification
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Profil utilisateur */}
-        {user && (
-          <div className="relative group">
+        {/* Notifications avec Popover pour éviter la disparition */}
+        <Popover open={showNotifications} onOpenChange={setShowNotifications}>
+          <PopoverTrigger asChild>
             <Button
               variant="ghost"
-              size="sm"
-              className="flex items-center gap-2"
+              size="icon"
+              className="relative"
+              aria-label="Notifications"
             >
-              <div className="h-8 w-8 overflow-hidden rounded-full bg-primary/10">
-                {user.image ? (
-                  <img
-                    src={user.image || "/placeholder.svg"}
-                    alt={user.name || "Avatar"}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-primary/20 text-xs font-bold uppercase text-primary">
-                    {user.name?.charAt(0) || user.email?.charAt(0) || "U"}
-                  </div>
-                )}
-              </div>
-              <span className="hidden text-sm md:block">
-                {user.name || user.email}
-              </span>
-              <ChevronDown size={16} />
+              <Bell size={20} />
+              {notificationCount > 0 && (
+                <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
+                  {notificationCount}
+                </span>
+              )}
             </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80" align="end">
+            <div className="space-y-2">
+              <h3 className="font-semibold">Notifications</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Aucune nouvelle notification
+              </p>
+            </div>
+          </PopoverContent>
+        </Popover>
 
-            {/* Menu déroulant utilisateur */}
-            <div className="absolute right-0 top-full mt-2 w-48 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-gray-800 hidden group-hover:block">
-              <div className="py-1">
+        {/* Profil utilisateur avec DropdownMenu pour une meilleure stabilité */}
+        {user && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <div className="h-8 w-8 overflow-hidden rounded-full bg-primary/10">
+                  {user.image ? (
+                    <img
+                      src={user.image || "/placeholder.svg"}
+                      alt={user.name || "Avatar"}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-primary/20 text-xs font-bold uppercase text-primary">
+                      {user.name?.charAt(0) || user.email?.charAt(0) || "U"}
+                    </div>
+                  )}
+                </div>
+                <span className="hidden text-sm md:block">
+                  {user.name || user.email}
+                </span>
+                <ChevronDown size={16} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem asChild>
                 <Link
                   href={`${basePath}/profile`}
-                  className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                  className="flex items-center cursor-pointer"
                 >
                   <User className="mr-2 h-4 w-4" />
                   Profil
                 </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
                 <Link
                   href={`${basePath}/settings`}
-                  className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                  className="flex items-center cursor-pointer"
                 >
                   <Settings className="mr-2 h-4 w-4" />
                   Paramètres
                 </Link>
-                <button
-                  onClick={() => signOut({ callbackUrl: "/" })}
-                  className="flex w-full items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Déconnexion
-                </button>
-              </div>
-            </div>
-          </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => signOut({ callbackUrl: "/" })}
+                className="flex items-center cursor-pointer"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Déconnexion
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
 
         {/* Bouton menu mobile */}

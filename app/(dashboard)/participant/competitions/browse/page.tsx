@@ -15,6 +15,8 @@ import {
   AlertCircle,
   Globe,
   X,
+  Info,
+  Clock,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -56,15 +58,16 @@ interface Competition {
   category: string;
   location: string;
   country: string;
-  startDate: string;
-  endDate: string;
-  registrationStartDate: string;
-  registrationEndDate: string;
+  startDate: string | null;
+  endDate: string | null;
+  registrationStartDate: string | null;
+  registrationEndDate: string | null;
+  registrationDeadline?: string | null;
   maxParticipants: number;
   currentParticipants: number;
   status: string;
   uniqueCode: string;
-  imageUrl?: string;
+  imageUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -87,6 +90,7 @@ export default function BrowseCompetitionsPage() {
   const [participationMessage, setParticipationMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
 
   const fetchCompetitions = useCallback(async () => {
     setIsLoading(true);
@@ -96,27 +100,35 @@ export default function BrowseCompetitionsPage() {
       let url = "/api/competitions/public";
       const params = new URLSearchParams();
 
-      if (countryFilter) params.append("country", countryFilter);
-      if (categoryFilter) params.append("category", categoryFilter);
+      if (countryFilter && countryFilter !== "all")
+        params.append("country", countryFilter);
+      if (categoryFilter && categoryFilter !== "all")
+        params.append("category", categoryFilter);
       if (searchQuery) params.append("search", searchQuery);
 
       if (params.toString()) {
         url += `?${params.toString()}`;
       }
 
+      console.log("Fetching competitions from:", url);
       const response = await fetch(url);
-      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.error || "Erreur lors de la récupération des compétitions"
-        );
+        const errorText = await response.text();
+        console.error("API response error:", response.status, errorText);
+        throw new Error(`Erreur ${response.status}: ${errorText}`);
       }
 
+      const data = await response.json();
       console.log(
         "✅ Compétitions publiques récupérées:",
         data.competitions?.length || 0
       );
+
+      if (debugMode && data.competitions?.length === 0) {
+        console.log("Réponse API complète:", data);
+      }
+
       const competitionsData = data.competitions || [];
       setCompetitions(competitionsData);
       setFilteredCompetitions(competitionsData);
@@ -128,7 +140,7 @@ export default function BrowseCompetitionsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery, countryFilter, categoryFilter]);
+  }, [searchQuery, countryFilter, categoryFilter, debugMode]);
 
   useEffect(() => {
     if (status === "authenticated") {
@@ -165,9 +177,52 @@ export default function BrowseCompetitionsPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.message || "Erreur lors de la demande de participation"
-        );
+        // Gestion spécifique des erreurs connues
+        if (data.message.includes("inscriptions ne sont pas ouvertes")) {
+          toast({
+            title: "Inscriptions fermées",
+            description:
+              "Les inscriptions ne sont pas ouvertes pour cette compétition actuellement.",
+            variant: "destructive",
+          });
+        } else if (
+          data.message.includes("période d'inscription est terminée")
+        ) {
+          toast({
+            title: "Date limite dépassée",
+            description:
+              "La date limite d'inscription à cette compétition est dépassée.",
+            variant: "destructive",
+          });
+        } else if (
+          data.message.includes("inscriptions ne sont pas encore ouvertes")
+        ) {
+          toast({
+            title: "Inscriptions à venir",
+            description:
+              "Les inscriptions pour cette compétition ne sont pas encore ouvertes.",
+            variant: "destructive",
+          });
+        } else if (data.message.includes("nombre maximum de participants")) {
+          toast({
+            title: "Compétition complète",
+            description:
+              "Le nombre maximum de participants pour cette compétition est atteint.",
+            variant: "destructive",
+          });
+        } else if (data.message.includes("déjà inscrit")) {
+          toast({
+            title: "Déjà inscrit",
+            description: "Vous êtes déjà inscrit à cette compétition.",
+            variant: "warning",
+          });
+        } else {
+          throw new Error(
+            data.message || "Erreur lors de la demande de participation"
+          );
+        }
+        setDialogOpen(false);
+        return;
       }
 
       toast({
@@ -216,7 +271,7 @@ export default function BrowseCompetitionsPage() {
     }
   };
 
-  const formatDate = (dateString?: string) => {
+  const formatDate = (dateString?: string | null) => {
     if (!dateString) return "Non définie";
     try {
       return format(new Date(dateString), "dd MMMM yyyy", { locale: fr });
@@ -225,10 +280,28 @@ export default function BrowseCompetitionsPage() {
     }
   };
 
+  // Vérifier si la date est dépassée
+  const isDatePassed = (dateString?: string | null) => {
+    if (!dateString) return false;
+    try {
+      const date = new Date(dateString);
+      return date < new Date();
+    } catch (error) {
+      return false;
+    }
+  };
+
   const clearFilters = () => {
     setSearchQuery("");
     setCountryFilter("");
     setCategoryFilter("");
+  };
+
+  const toggleDebugMode = () => {
+    setDebugMode(!debugMode);
+    if (!debugMode) {
+      fetchCompetitions();
+    }
   };
 
   if (status === "loading") {
@@ -251,7 +324,43 @@ export default function BrowseCompetitionsPage() {
             Parcourez les compétitions disponibles et inscrivez-vous
           </p>
         </div>
+        <div className="flex items-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchCompetitions}
+            className="mr-2"
+          >
+            <Loader2
+              className={`h-4 w-4 mr-1 ${isLoading ? "animate-spin" : ""}`}
+            />
+            Actualiser
+          </Button>
+          <Button variant="ghost" size="sm" onClick={toggleDebugMode}>
+            <Info className="h-4 w-4 mr-1" />
+            {debugMode ? "Désactiver débogage" : "Activer débogage"}
+          </Button>
+        </div>
       </div>
+
+      {debugMode && (
+        <Alert className="mb-4 bg-yellow-50">
+          <Info className="h-4 w-4" />
+          <AlertTitle>Mode débogage activé</AlertTitle>
+          <AlertDescription>
+            <p>Session: {session?.user?.email || "Non connecté"}</p>
+            <p>Nombre de compétitions: {competitions.length}</p>
+            <p>
+              Filtres:{" "}
+              {JSON.stringify({
+                search: searchQuery,
+                country: countryFilter,
+                category: categoryFilter,
+              })}
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="bg-white p-4 rounded-lg shadow-sm mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -313,7 +422,11 @@ export default function BrowseCompetitionsPage() {
               {searchQuery && (
                 <Badge variant="outline" className="flex items-center gap-1">
                   Recherche: {searchQuery}
-                  <button onClick={() => setSearchQuery("")} className="ml-1">
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="ml-1"
+                    aria-label="Supprimer le filtre de recherche"
+                  >
                     <X className="h-3 w-3" />
                   </button>
                 </Badge>
@@ -322,7 +435,11 @@ export default function BrowseCompetitionsPage() {
                 <Badge variant="outline" className="flex items-center gap-1">
                   <Globe className="h-3 w-3" />
                   Pays: {countryFilter}
-                  <button onClick={() => setCountryFilter("")} className="ml-1">
+                  <button
+                    onClick={() => setCountryFilter("")}
+                    className="ml-1"
+                    aria-label="Supprimer le filtre de pays"
+                  >
                     <X className="h-3 w-3" />
                   </button>
                 </Badge>
@@ -334,6 +451,7 @@ export default function BrowseCompetitionsPage() {
                   <button
                     onClick={() => setCategoryFilter("")}
                     className="ml-1"
+                    aria-label="Supprimer le filtre de catégorie"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -409,81 +527,135 @@ export default function BrowseCompetitionsPage() {
               Effacer les filtres
             </Button>
           )}
+
+          {debugMode && (
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg text-left max-w-2xl mx-auto">
+              <h4 className="font-medium mb-2">Informations de débogage</h4>
+              <p>
+                Vérifiez que des compétitions ont été créées et qu'elles sont
+                marquées comme publiques.
+              </p>
+              <p className="mt-2">
+                Si vous êtes administrateur, vous pouvez essayer de :
+              </p>
+              <ul className="list-disc pl-5 mt-1 space-y-1">
+                <li>
+                  Vérifier la collection MongoDB (Competition ou competitions)
+                </li>
+                <li>
+                  S'assurer que les compétitions ont le statut PUBLISHED ou
+                  REGISTRATION_OPEN
+                </li>
+                <li>Vérifier que isPublic est défini à true</li>
+              </ul>
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCompetitions.map((competition) => (
-            <Card
-              key={competition.id}
-              className="overflow-hidden hover:shadow-lg transition-shadow"
-            >
-              <div className="h-40 relative">
-                {competition.imageUrl ? (
-                  <Image
-                    src={competition.imageUrl || "/placeholder.svg"}
-                    alt={competition.name}
-                    fill
-                    className="object-cover"
-                  />
-                ) : (
-                  <div className="h-full w-full bg-gradient-to-r from-blue-500 to-indigo-600 flex items-center justify-center">
-                    <Trophy className="h-16 w-16 text-white" />
+          {filteredCompetitions.map((competition) => {
+            // Utiliser registrationDeadline s'il existe, sinon utiliser registrationEndDate
+            const deadlineDate =
+              competition.registrationDeadline ||
+              competition.registrationEndDate;
+            const isDeadlinePassed = isDatePassed(deadlineDate);
+
+            return (
+              <Card
+                key={competition.id}
+                className="overflow-hidden hover:shadow-lg transition-shadow"
+              >
+                <div className="h-40 relative">
+                  {competition.imageUrl ? (
+                    <Image
+                      src={competition.imageUrl || "/placeholder.svg"}
+                      alt={competition.name || "Image de la compétition"}
+                      fill
+                      className="object-cover"
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-gradient-to-r from-blue-500 to-indigo-600 flex items-center justify-center">
+                      <Trophy className="h-16 w-16 text-white" />
+                    </div>
+                  )}
+                  <div className="absolute top-2 right-2 flex gap-2">
+                    {getCategoryBadge(competition.category)}
                   </div>
-                )}
-                <div className="absolute top-2 right-2 flex gap-2">
-                  {getCategoryBadge(competition.category)}
+
+                  {/* Badge pour la date limite d'inscription */}
+                  {deadlineDate && (
+                    <div className="absolute bottom-2 left-2">
+                      <Badge
+                        className={`flex items-center gap-1 ${
+                          isDeadlinePassed ? "bg-red-600" : "bg-amber-600"
+                        }`}
+                      >
+                        <Clock className="h-3 w-3" />
+                        {isDeadlinePassed
+                          ? "Inscriptions terminées"
+                          : `Date limite: ${formatDate(deadlineDate)}`}
+                      </Badge>
+                    </div>
+                  )}
                 </div>
-              </div>
-              <CardHeader className="pb-2">
-                <CardTitle>{competition.name}</CardTitle>
-                <CardDescription className="flex items-center gap-1">
-                  <Globe className="h-3.5 w-3.5" />
-                  {competition.country || "International"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-start">
-                    <Calendar className="h-4 w-4 mr-2 mt-0.5 text-gray-500" />
-                    <div>
-                      <p className="font-medium">Inscriptions:</p>
-                      <p>
-                        Du {formatDate(competition.registrationStartDate)} au{" "}
-                        {formatDate(competition.registrationEndDate)}
+                <CardHeader className="pb-2">
+                  <CardTitle>
+                    {competition.name || "Compétition sans nom"}
+                  </CardTitle>
+                  <CardDescription className="flex items-center gap-1">
+                    <Globe className="h-3.5 w-3.5" />
+                    {competition.country || "International"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-start">
+                      <Calendar className="h-4 w-4 mr-2 mt-0.5 text-gray-500" />
+                      <div>
+                        <p className="font-medium">Période d'inscriptions:</p>
+                        <p>
+                          Du {formatDate(competition.registrationStartDate)} au{" "}
+                          {formatDate(deadlineDate)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center">
+                      <MapPin className="h-4 w-4 mr-2 text-gray-500" />
+                      <span>{competition.location || "Lieu non défini"}</span>
+                    </div>
+                    <div className="flex items-center">
+                      <Users className="h-4 w-4 mr-2 text-gray-500" />
+                      <span>
+                        {competition.currentParticipants || 0}/
+                        {competition.maxParticipants || "∞"} participants
+                      </span>
+                    </div>
+                    <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-100">
+                      <p className="text-xs font-medium text-gray-500">
+                        Code d'invitation:
+                      </p>
+                      <p className="font-mono font-bold">
+                        {competition.uniqueCode}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center">
-                    <MapPin className="h-4 w-4 mr-2 text-gray-500" />
-                    <span>{competition.location || "Lieu non défini"}</span>
-                  </div>
-                  <div className="flex items-center">
-                    <Users className="h-4 w-4 mr-2 text-gray-500" />
-                    <span>
-                      {competition.currentParticipants || 0}/
-                      {competition.maxParticipants || "∞"} participants
-                    </span>
-                  </div>
-                  <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-100">
-                    <p className="text-xs font-medium text-gray-500">
-                      Code d'invitation:
-                    </p>
-                    <p className="font-mono font-bold">
-                      {competition.uniqueCode}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Button
-                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600"
-                  onClick={() => handleParticipate(competition)}
-                >
-                  Participer
-                </Button>
-              </CardFooter>
-            </Card>
-          ))}
+                </CardContent>
+                <CardFooter>
+                  <Button
+                    className={`w-full ${
+                      isDeadlinePassed
+                        ? "bg-gray-500 hover:bg-gray-600"
+                        : "bg-gradient-to-r from-blue-600 to-indigo-600"
+                    }`}
+                    onClick={() => handleParticipate(competition)}
+                    disabled={isDeadlinePassed}
+                  >
+                    {isDeadlinePassed ? "Inscriptions terminées" : "Participer"}
+                  </Button>
+                </CardFooter>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -492,11 +664,33 @@ export default function BrowseCompetitionsPage() {
           <DialogHeader>
             <DialogTitle>Participer à la compétition</DialogTitle>
             <DialogDescription>
-              Confirmez votre participation à {selectedCompetition?.name}
+              Confirmez votre participation à{" "}
+              {selectedCompetition?.name || "cette compétition"}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            {selectedCompetition && (
+              <Alert className="bg-blue-50">
+                <Info className="h-4 w-4" />
+                <AlertTitle>Informations importantes</AlertTitle>
+                <AlertDescription>
+                  <p>
+                    Date limite d'inscription:{" "}
+                    {formatDate(
+                      selectedCompetition.registrationDeadline ||
+                        selectedCompetition.registrationEndDate
+                    )}
+                  </p>
+                  <p>
+                    Nombre de participants:{" "}
+                    {selectedCompetition.currentParticipants || 0}/
+                    {selectedCompetition.maxParticipants || "∞"}
+                  </p>
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="space-y-2">
               <label className="text-sm font-medium">Code d'invitation</label>
               <Input

@@ -211,6 +211,13 @@ export async function updateUser(
   userData: any
 ): Promise<MongoUser | null> {
   try {
+    console.log(
+      "Mise à jour de l'utilisateur:",
+      id,
+      "avec les données:",
+      userData
+    );
+
     const db = await connectDB();
 
     if (!db) {
@@ -233,12 +240,47 @@ export async function updateUser(
       delete userData.password;
     }
 
+    // Ne pas mettre à jour l'email directement
+    if (userData.email) {
+      delete userData.email;
+    }
+
     // Mettre à jour la date de modification
     userData.updatedAt = new Date();
 
-    await collection.updateOne({ _id: objectId }, { $set: userData });
+    // Nettoyer les données vides
+    Object.keys(userData).forEach((key) => {
+      if (
+        userData[key] === "" ||
+        userData[key] === null ||
+        userData[key] === undefined
+      ) {
+        delete userData[key];
+      }
+    });
 
-    return getUserById(id);
+    console.log("Données nettoyées pour mise à jour:", userData);
+
+    const result = await collection.updateOne(
+      { _id: objectId },
+      { $set: userData }
+    );
+
+    console.log("Résultat de la mise à jour:", {
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+    });
+
+    if (result.matchedCount === 0) {
+      console.error("Aucun utilisateur trouvé avec l'ID:", id);
+      return null;
+    }
+
+    // Récupérer l'utilisateur mis à jour
+    const updatedUser = await getUserById(id);
+    console.log("Utilisateur après mise à jour:", updatedUser);
+
+    return updatedUser;
   } catch (error) {
     console.error("Erreur lors de la mise à jour de l'utilisateur:", error);
     throw error;

@@ -26,11 +26,12 @@ interface CreateCompetitionParams {
   rules?: string[];
 }
 
-// Interface pour la compétition
+// Interface étendue pour la compétition avec tous les champs nécessaires
 export interface Competition {
   id: string;
   _id?: any;
   title: string;
+  name?: string; // Alias pour title
   description: string;
   category: string;
   country: string;
@@ -38,10 +39,12 @@ export interface Competition {
   commune?: string | null;
   address: string;
   venue: string;
+  location?: string; // Champ calculé
   imageUrl?: string | null;
   bannerUrl?: string | null;
   registrationStartDate: Date;
   registrationDeadline: Date;
+  registrationEndDate?: Date; // Alias pour registrationDeadline
   startDate: Date;
   endDate: Date;
   maxParticipants: number;
@@ -54,6 +57,7 @@ export interface Competition {
   createdAt: Date;
   updatedAt: Date;
   participants: number;
+  currentParticipants?: number; // Alias pour participants
   teams: number;
   matches: number;
 }
@@ -82,7 +86,7 @@ export async function createCompetition(
       imageUrl: params.imageUrl ? "défini" : "non défini",
       bannerUrl: params.bannerUrl ? "défini" : "non défini",
       organizerId: params.organizerId,
-      status: params.status || CompetitionStatus.DRAFT,
+      status: params.status || CompetitionStatus.OPEN,
       tournamentFormat: params.tournamentFormat,
       isPublic: params.isPublic,
       rules: params.rules,
@@ -120,9 +124,13 @@ export async function createCompetition(
     // Générer un code unique pour la compétition
     const uniqueCode = nanoid(8).toUpperCase();
 
+    // Définir le statut par défaut à OPEN si non spécifié
+    const status = params.status || CompetitionStatus.OPEN;
+
     // Créer la compétition directement avec MongoDB
     const competition = await insertOne("Competition", {
       title: params.title,
+      name: params.title, // Alias pour compatibilité
       description: params.description || "",
       category: params.category,
       country: params.country,
@@ -130,14 +138,16 @@ export async function createCompetition(
       commune: params.commune || null,
       address: params.address,
       venue: params.venue,
+      location: `${params.address}, ${params.city}, ${params.country}`, // Champ calculé
       imageUrl: params.imageUrl || null,
       bannerUrl: params.bannerUrl || null,
       registrationStartDate: params.registrationStartDate,
       registrationDeadline: params.registrationDeadline,
+      registrationEndDate: params.registrationDeadline, // Alias pour compatibilité
       startDate: params.startDate,
       endDate: params.endDate,
       maxParticipants: params.maxParticipants,
-      status: params.status || CompetitionStatus.DRAFT,
+      status: status,
       tournamentFormat: params.tournamentFormat || null,
       isPublic: params.isPublic !== undefined ? params.isPublic : true,
       rules: params.rules || [],
@@ -146,6 +156,7 @@ export async function createCompetition(
       createdAt: new Date(),
       updatedAt: new Date(),
       participants: 0,
+      currentParticipants: 0, // Alias pour compatibilité
       teams: 0,
       matches: 0,
     });
@@ -154,6 +165,8 @@ export async function createCompetition(
       id: competition.id,
       title: competition.title,
       uniqueCode: competition.uniqueCode,
+      isPublic: competition.isPublic,
+      status: competition.status,
     });
 
     return competition as Competition;
@@ -203,6 +216,28 @@ export async function getCompetitionByIdOrCode(
       return null;
     }
 
+    // Ajouter les champs calculés s'ils n'existent pas
+    if (!competition.name && competition.title) {
+      competition.name = competition.title;
+    }
+    if (
+      !competition.location &&
+      competition.address &&
+      competition.city &&
+      competition.country
+    ) {
+      competition.location = `${competition.address}, ${competition.city}, ${competition.country}`;
+    }
+    if (!competition.registrationEndDate && competition.registrationDeadline) {
+      competition.registrationEndDate = competition.registrationDeadline;
+    }
+    if (
+      competition.currentParticipants === undefined &&
+      competition.participants !== undefined
+    ) {
+      competition.currentParticipants = competition.participants;
+    }
+
     console.log(`✅ Compétition trouvée: ${competition.title || "Sans titre"}`);
     return competition as Competition;
   } catch (error) {
@@ -236,14 +271,129 @@ export async function getCompetitionsByOrganizerId(
         console.log(
           `✅ ${altCompetitions.length} compétitions trouvées dans la collection "competitions"`
         );
-        return altCompetitions as Competition[];
+        return normalizeCompetitions(altCompetitions);
       }
     }
 
     console.log(`✅ ${competitions.length} compétitions trouvées`);
-    return competitions as Competition[];
+    return normalizeCompetitions(competitions);
   } catch (error) {
     console.error("❌ Erreur lors de la récupération des compétitions:", error);
     throw error;
   }
+}
+
+/**
+ * Récupère toutes les compétitions publiques
+ */
+export async function getPublicCompetitions(
+  filters: any = {}
+): Promise<Competition[]> {
+  try {
+    console.log(
+      "Récupération des compétitions publiques avec filtres:",
+      filters
+    );
+
+    // Construire la requête de base
+    const query: any = { isPublic: true };
+
+    // Ajouter les filtres si spécifiés
+    if (filters.country && filters.country !== "all") {
+      query.country = filters.country;
+    }
+
+    if (filters.category && filters.category !== "all") {
+      query.category = filters.category;
+    }
+
+    // Statuts valides pour les compétitions publiques
+    const validStatuses = [
+      CompetitionStatus.DRAFT,
+      CompetitionStatus.OPEN,
+      CompetitionStatus.CLOSED,
+      CompetitionStatus.IN_PROGRESS,
+      CompetitionStatus.COMPLETED,
+    ];
+
+    query.status = { $in: validStatuses };
+
+    console.log("Requête MongoDB:", JSON.stringify(query, null, 2));
+
+    // Récupérer les compétitions directement avec MongoDB
+    let competitions = await find("Competition", query);
+
+    // Si aucune compétition n'est trouvée, essayer dans la collection "competitions" (minuscule)
+    if (competitions.length === 0) {
+      console.log(
+        "Aucune compétition trouvée dans 'Competition', essai dans 'competitions'..."
+      );
+      const altCompetitions = await find("competitions", query);
+      if (altCompetitions.length > 0) {
+        console.log(
+          `✅ ${altCompetitions.length} compétitions trouvées dans la collection "competitions"`
+        );
+        competitions = altCompetitions;
+      }
+    }
+
+    // Si toujours aucune compétition, essayer sans filtres
+    if (competitions.length === 0) {
+      console.log(
+        "Aucune compétition trouvée avec filtres, essai sans filtres..."
+      );
+      competitions = await find("Competition", { isPublic: true });
+
+      if (competitions.length === 0) {
+        competitions = await find("competitions", { isPublic: true });
+      }
+
+      // Dernier recours: récupérer toutes les compétitions
+      if (competitions.length === 0) {
+        console.log(
+          "Récupération de toutes les compétitions comme dernier recours..."
+        );
+        competitions = await find("Competition", {});
+
+        if (competitions.length === 0) {
+          competitions = await find("competitions", {});
+        }
+      }
+    }
+
+    console.log(`✅ ${competitions.length} compétitions publiques trouvées`);
+    return normalizeCompetitions(competitions);
+  } catch (error) {
+    console.error(
+      "❌ Erreur lors de la récupération des compétitions publiques:",
+      error
+    );
+    throw error;
+  }
+}
+
+/**
+ * Normalise les compétitions pour s'assurer que tous les champs nécessaires sont présents
+ */
+function normalizeCompetitions(competitions: any[]): Competition[] {
+  return competitions.map((comp) => {
+    // Ajouter les champs calculés s'ils n'existent pas
+    if (!comp.name && comp.title) {
+      comp.name = comp.title;
+    }
+    if (!comp.location && comp.address && comp.city && comp.country) {
+      comp.location = `${comp.address}, ${comp.city}, ${comp.country}`;
+    }
+    if (!comp.registrationEndDate && comp.registrationDeadline) {
+      comp.registrationEndDate = comp.registrationDeadline;
+    }
+    if (
+      comp.currentParticipants === undefined &&
+      comp.participants !== undefined
+    ) {
+      comp.currentParticipants = comp.participants;
+    }
+
+    return comp as Competition;
+  });
 }
