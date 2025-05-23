@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import type React from "react";
+
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -25,6 +27,15 @@ import {
   Settings,
   CalendarIcon,
   Loader2,
+  Upload,
+  Share2,
+  Globe,
+  Building,
+  Home,
+  ImageIcon,
+  Facebook,
+  Instagram,
+  Twitter,
 } from "lucide-react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
@@ -72,7 +83,9 @@ import {
 } from "@/constants/categories";
 import { COMPETITION_RULES } from "@/constants/competition-rules";
 import { CompetitionCategory, TournamentFormat } from "@/lib/prisma-schema";
-import { AnimatedSuccess } from "@/components/animated-success";
+import { COUNTRIES } from "@/constants/countries";
+import { CITIES } from "@/constants/villes";
+import { COMMUNES } from "@/constants/communes";
 
 // Définition du schéma de validation
 const formSchema = z
@@ -86,8 +99,15 @@ const formSchema = z
     category: z.nativeEnum(CompetitionCategory, {
       required_error: "Veuillez sélectionner une catégorie.",
     }),
+    country: z.string().min(1, {
+      message: "Veuillez sélectionner un pays.",
+    }),
+    city: z.string().min(1, {
+      message: "Veuillez sélectionner une ville.",
+    }),
+    commune: z.string().optional(),
     location: z.string().min(3, {
-      message: "Veuillez entrer un lieu valide.",
+      message: "Veuillez entrer une adresse valide.",
     }),
     venue: z.string().min(3, {
       message: "Veuillez entrer un lieu précis valide.",
@@ -113,6 +133,8 @@ const formSchema = z
     tournamentFormat: z.nativeEnum(TournamentFormat).optional(),
     isPublic: z.boolean().default(true),
     rules: z.array(z.string()).optional(),
+    image: z.instanceof(File).optional(),
+    banner: z.instanceof(File).optional(),
   })
   .refine((data) => data.endDate >= data.startDate, {
     message: "La date de fin doit être postérieure ou égale à la date de début",
@@ -135,6 +157,21 @@ export default function CreateCompetitionPage() {
   const [uniqueCode, setUniqueCode] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("intro");
   const [formProgress, setFormProgress] = useState(0);
+  const [availableCities, setAvailableCities] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [availableCommunes, setAvailableCommunes] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [socialCardPreview, setSocialCardPreview] = useState<string | null>(
+    null
+  );
+  const [competitionData, setCompetitionData] = useState<any>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
+  const socialCardCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Définition du type pour le formulaire
   type FormData = z.infer<typeof formSchema>;
@@ -144,7 +181,10 @@ export default function CreateCompetitionPage() {
     defaultValues: {
       name: "",
       description: "",
-      category: undefined as any, // Utilisation de any pour éviter les erreurs de typage
+      category: undefined as any,
+      country: "FR",
+      city: "",
+      commune: "",
       location: "",
       venue: "",
       maxParticipants: 10,
@@ -152,53 +192,286 @@ export default function CreateCompetitionPage() {
       isPublic: true,
       rules: [],
     },
-    resolver: zodResolver(formSchema) as any, // Utilisation de any pour éviter les erreurs de typage
+    resolver: zodResolver(formSchema) as any,
   });
+
+  // Mettre à jour les villes disponibles lorsque le pays change
+  useEffect(() => {
+    const country = form.watch("country");
+    if (country) {
+      const filteredCities = CITIES.filter(
+        (city) => city.countryCode === country
+      ).map((city) => ({
+        value: city.code,
+        label: city.name,
+      }));
+      setAvailableCities(filteredCities);
+      form.setValue("city", "");
+      form.setValue("commune", "");
+      setAvailableCommunes([]);
+    }
+  }, [form.watch("country")]);
+
+  // Mettre à jour les communes disponibles lorsque la ville change
+  useEffect(() => {
+    const city = form.watch("city");
+    if (city) {
+      const filteredCommunes = COMMUNES.filter(
+        (commune) => commune.cityCode === city
+      ).map((commune) => ({
+        value: commune.code,
+        label: commune.name,
+      }));
+      setAvailableCommunes(filteredCommunes);
+      form.setValue("commune", "");
+    }
+  }, [form.watch("city")]);
 
   // Mettre à jour la progression du formulaire
   useEffect(() => {
     const values = form.getValues();
     let progress = 0;
 
-    if (values.name) progress += 10;
-    if (values.description) progress += 10;
-    if (values.category) progress += 10;
-    if (values.location) progress += 10;
-    if (values.venue) progress += 10;
-    if (values.registrationStartDate) progress += 10;
-    if (values.registrationEndDate) progress += 10;
-    if (values.startDate) progress += 10;
-    if (values.endDate) progress += 10;
-    if (values.maxParticipants > 1) progress += 10;
+    if (values.name) progress += 8;
+    if (values.description) progress += 8;
+    if (values.category) progress += 8;
+    if (values.country) progress += 8;
+    if (values.city) progress += 8;
+    if (values.location) progress += 8;
+    if (values.venue) progress += 8;
+    if (values.registrationStartDate) progress += 8;
+    if (values.registrationEndDate) progress += 8;
+    if (values.startDate) progress += 8;
+    if (values.endDate) progress += 8;
+    if (values.maxParticipants > 1) progress += 8;
+    if (values.image) progress += 6;
+    if (values.banner) progress += 6;
 
     setFormProgress(progress);
   }, [form.watch()]);
+
+  // Générer la carte sociale pour les réseaux sociaux
+  useEffect(() => {
+    if (competitionData && socialCardCanvasRef.current) {
+      const canvas = socialCardCanvasRef.current;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      // Définir la taille du canvas
+      canvas.width = 1200;
+      canvas.height = 630;
+
+      // Dessiner l'arrière-plan
+      const gradient = ctx.createLinearGradient(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+      gradient.addColorStop(0, "#10b981"); // emerald-500
+      gradient.addColorStop(1, "#3b82f6"); // blue-500
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Ajouter un overlay semi-transparent
+      ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Dessiner l'image de la compétition si disponible
+      if (imagePreview) {
+        const img = new globalThis.Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          // Dessiner l'image avec un effet d'opacité
+          if (ctx) {
+            ctx.globalAlpha = 0.2;
+            ctx.drawImage(img, canvas.width / 2 - 150, 50, 300, 300);
+            ctx.globalAlpha = 1.0;
+
+            // Continuer avec le reste du dessin
+            drawCardContent();
+          }
+        };
+        img.src = imagePreview;
+      } else {
+        drawCardContent();
+      }
+
+      function drawCardContent() {
+        if (!ctx) return;
+
+        // Ajouter le titre
+        ctx.font = "bold 60px Arial";
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.fillText(competitionData.title, canvas.width / 2, 400);
+
+        // Ajouter la catégorie
+        ctx.font = "bold 40px Arial";
+        ctx.fillStyle = "#f0f0f0";
+        ctx.fillText(
+          COMPETITION_CATEGORIES.find(
+            (c) => c.value === competitionData.category
+          )?.label || competitionData.category,
+          canvas.width / 2,
+          470
+        );
+
+        // Ajouter les dates
+        ctx.font = "30px Arial";
+        ctx.fillStyle = "#f0f0f0";
+        const startDate = competitionData.startDate
+          ? format(new Date(competitionData.startDate), "dd MMMM yyyy", {
+              locale: fr,
+            })
+          : "";
+        const endDate = competitionData.endDate
+          ? format(new Date(competitionData.endDate), "dd MMMM yyyy", {
+              locale: fr,
+            })
+          : "";
+        ctx.fillText(`Du ${startDate} au ${endDate}`, canvas.width / 2, 520);
+
+        // Ajouter le lieu
+        ctx.font = "30px Arial";
+        ctx.fillStyle = "#f0f0f0";
+        const cityName =
+          availableCities.find((c) => c.value === competitionData.city)
+            ?.label || competitionData.city;
+        const countryName =
+          COUNTRIES.find((c) => c.code === competitionData.country)?.name ||
+          competitionData.country;
+        ctx.fillText(
+          `${competitionData.venue}, ${cityName}, ${countryName}`,
+          canvas.width / 2,
+          570
+        );
+
+        // Ajouter le code unique
+        if (uniqueCode) {
+          ctx.font = "bold 36px Arial";
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(`Code: ${uniqueCode}`, canvas.width / 2, 630 - 40);
+        }
+
+        // Convertir le canvas en URL de données
+        const dataUrl = canvas.toDataURL("image/png");
+        setSocialCardPreview(dataUrl);
+      }
+    }
+  }, [competitionData, imagePreview, uniqueCode, availableCities]);
+
+  // Gérer le changement d'image
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      form.setValue("image", file);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Gérer le changement de bannière
+  const handleBannerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      form.setValue("banner", file);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setBannerPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Fonction pour télécharger la carte sociale
+  const downloadSocialCard = () => {
+    if (socialCardPreview) {
+      const link = document.createElement("a");
+      link.href = socialCardPreview;
+      link.download = `competition-${uniqueCode}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  // Fonction pour partager sur les réseaux sociaux
+  const shareOnSocial = (platform: string) => {
+    if (!competitionData) return;
+
+    const title = encodeURIComponent(
+      `Rejoignez la compétition: ${competitionData.title}`
+    );
+    const description = encodeURIComponent(
+      `Je vous invite à participer à cette compétition de ${
+        COMPETITION_CATEGORIES.find((c) => c.value === competitionData.category)
+          ?.label
+      }. Utilisez le code: ${uniqueCode}`
+    );
+    const url = encodeURIComponent(
+      `https://votre-site.com/competitions/${uniqueCode}`
+    );
+
+    let shareUrl = "";
+    switch (platform) {
+      case "facebook":
+        shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}&quote=${description}`;
+        break;
+      case "twitter":
+        shareUrl = `https://twitter.com/intent/tweet?text=${description}&url=${url}`;
+        break;
+      case "whatsapp":
+        shareUrl = `https://wa.me/?text=${description} ${url}`;
+        break;
+    }
+
+    if (shareUrl) {
+      window.open(shareUrl, "_blank");
+    }
+  };
 
   // Fonction de soumission du formulaire
   const onSubmit = async (data: FormData) => {
     setIsSubmitting(true);
     try {
+      // Préparer les données du formulaire
+      const formData = new FormData();
+      formData.append("title", data.name);
+      formData.append("description", data.description);
+      formData.append("category", data.category);
+      formData.append("country", data.country);
+      formData.append("city", data.city);
+      if (data.commune) formData.append("commune", data.commune);
+      formData.append("address", data.location);
+      formData.append("venue", data.venue);
+      formData.append(
+        "registrationStartDate",
+        data.registrationStartDate.toISOString()
+      );
+      formData.append(
+        "registrationDeadline",
+        data.registrationEndDate.toISOString()
+      );
+      formData.append("startDate", data.startDate.toISOString());
+      formData.append("endDate", data.endDate.toISOString());
+      formData.append("maxParticipants", data.maxParticipants.toString());
+      formData.append("status", data.initialStatus);
+      if (data.tournamentFormat)
+        formData.append("tournamentFormat", data.tournamentFormat);
+      formData.append("isPublic", data.isPublic.toString());
+      if (data.rules && data.rules.length > 0)
+        formData.append("rules", data.rules.join(", "));
+      if (data.image) formData.append("image", data.image);
+      if (data.banner) formData.append("banner", data.banner);
+
+      // Envoyer les données au serveur
       const response = await fetch("/api/competitions", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: data.name,
-          description: data.description,
-          category: data.category,
-          address: data.location,
-          venue: data.venue,
-          registrationStartDate: data.registrationStartDate,
-          registrationDeadline: data.registrationEndDate,
-          startDate: data.startDate,
-          endDate: data.endDate,
-          maxParticipants: data.maxParticipants,
-          status: data.initialStatus,
-          tournamentFormat: data.tournamentFormat,
-          isPublic: data.isPublic,
-          rules: data.rules?.join(", "),
-        }),
+        body: formData,
       });
 
       const responseData = await response.json();
@@ -209,6 +482,12 @@ export default function CreateCompetitionPage() {
         );
       }
 
+      // Stocker les données de la compétition pour la prévisualisation
+      setCompetitionData({
+        ...data,
+        id: responseData.competition.id,
+      });
+
       setUniqueCode(responseData.competition.uniqueCode);
       toast({
         title: "Compétition créée avec succès!",
@@ -216,6 +495,9 @@ export default function CreateCompetitionPage() {
           "Votre compétition a été créée et est prête à être partagée.",
         variant: "success",
       });
+
+      // Passer à l'onglet de prévisualisation
+      setActiveTab("preview");
     } catch (error) {
       console.error("Erreur:", error);
       toast({
@@ -234,11 +516,21 @@ export default function CreateCompetitionPage() {
       setActiveTab("details");
     } else if (activeTab === "details") {
       // Valider les champs de l'onglet détails avant de passer à l'onglet suivant
-      form.trigger(["name", "description", "category", "location", "venue"]);
+      form.trigger([
+        "name",
+        "description",
+        "category",
+        "country",
+        "city",
+        "location",
+        "venue",
+      ]);
       const hasErrors =
         !!form.formState.errors.name ||
         !!form.formState.errors.description ||
         !!form.formState.errors.category ||
+        !!form.formState.errors.country ||
+        !!form.formState.errors.city ||
         !!form.formState.errors.location ||
         !!form.formState.errors.venue;
 
@@ -264,6 +556,8 @@ export default function CreateCompetitionPage() {
         setActiveTab("format");
       }
     } else if (activeTab === "format") {
+      setActiveTab("media");
+    } else if (activeTab === "media") {
       setActiveTab("rules");
     }
   };
@@ -275,8 +569,10 @@ export default function CreateCompetitionPage() {
       setActiveTab("details");
     } else if (activeTab === "format") {
       setActiveTab("dates");
-    } else if (activeTab === "rules") {
+    } else if (activeTab === "media") {
       setActiveTab("format");
+    } else if (activeTab === "rules") {
+      setActiveTab("media");
     }
   };
 
@@ -318,12 +614,112 @@ export default function CreateCompetitionPage() {
               )}
             </CardHeader>
             <CardContent className="pt-6">
-              {uniqueCode ? (
-                <AnimatedSuccess
-                  uniqueCode={uniqueCode}
-                  onViewDetails={handleViewDetails}
-                  onDashboard={handleDashboard}
-                />
+              {uniqueCode && activeTab === "preview" ? (
+                <div className="space-y-8">
+                  <div className="text-center space-y-4">
+                    <div className="inline-flex items-center justify-center p-2 bg-green-100 rounded-full">
+                      <CheckCircle2 className="h-8 w-8 text-green-600" />
+                    </div>
+                    <h2 className="text-2xl font-bold">
+                      Compétition créée avec succès!
+                    </h2>
+                    <p className="text-gray-500">
+                      Votre compétition a été créée et est prête à être
+                      partagée. Utilisez la carte ci-dessous pour promouvoir
+                      votre événement sur les réseaux sociaux.
+                    </p>
+                  </div>
+
+                  <div className="bg-gray-50 p-4 rounded-lg border">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                      <Share2 className="h-5 w-5 text-blue-600" />
+                      Carte pour les réseaux sociaux
+                    </h3>
+                    <div className="relative aspect-[1200/630] w-full overflow-hidden rounded-lg shadow-md mb-4">
+                      {socialCardPreview ? (
+                        <Image
+                          src={
+                            socialCardPreview ||
+                            "/placeholder.svg?height=200&width=200&query=placeholder"
+                          }
+                          alt="Carte sociale pour les réseaux sociaux"
+                          fill
+                          className="object-cover"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+                          <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                    <canvas ref={socialCardCanvasRef} className="hidden" />
+
+                    <div className="flex flex-wrap gap-2 justify-center">
+                      <Button
+                        variant="outline"
+                        className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100"
+                        onClick={() => shareOnSocial("facebook")}
+                      >
+                        <Facebook className="mr-2 h-4 w-4" />
+                        Partager sur Facebook
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="bg-sky-50 text-sky-600 border-sky-200 hover:bg-sky-100"
+                        onClick={() => shareOnSocial("twitter")}
+                      >
+                        <Twitter className="mr-2 h-4 w-4" />
+                        Partager sur Twitter
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="bg-pink-50 text-pink-600 border-pink-200 hover:bg-pink-100"
+                        onClick={() => shareOnSocial("instagram")}
+                      >
+                        <Instagram className="mr-2 h-4 w-4" />
+                        Partager sur Instagram
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
+                        onClick={downloadSocialCard}
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        Télécharger l'image
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2 text-blue-700">
+                      <Info className="h-5 w-5" />
+                      Code unique de la compétition
+                    </h3>
+                    <div className="flex items-center justify-center p-3 bg-white rounded-md border border-blue-200 mb-2">
+                      <span className="text-2xl font-mono font-bold text-blue-700">
+                        {uniqueCode}
+                      </span>
+                    </div>
+                    <p className="text-sm text-blue-600 text-center">
+                      Partagez ce code avec les participants pour qu'ils
+                      puissent rejoindre votre compétition.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                    <Button
+                      onClick={handleViewDetails}
+                      className="bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 text-white"
+                    >
+                      <Eye className="mr-2 h-4 w-4" />
+                      Voir les détails de la compétition
+                    </Button>
+                    <Button variant="outline" onClick={handleDashboard}>
+                      <LayoutDashboard className="mr-2 h-4 w-4" />
+                      Retour au tableau de bord
+                    </Button>
+                  </div>
+                </div>
               ) : (
                 <Form {...form}>
                   <form
@@ -335,7 +731,7 @@ export default function CreateCompetitionPage() {
                       onValueChange={setActiveTab}
                       className="w-full"
                     >
-                      <TabsList className="grid w-full grid-cols-5">
+                      <TabsList className="grid w-full grid-cols-6">
                         <TabsTrigger
                           value="intro"
                           className="flex flex-col items-center gap-1 py-2"
@@ -363,6 +759,13 @@ export default function CreateCompetitionPage() {
                         >
                           <Layers className="h-4 w-4" />
                           <span className="hidden sm:inline">Format</span>
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="media"
+                          className="flex flex-col items-center gap-1 py-2"
+                        >
+                          <ImageIcon className="h-4 w-4" />
+                          <span className="hidden sm:inline">Médias</span>
                         </TabsTrigger>
                         <TabsTrigger
                           value="rules"
@@ -398,7 +801,7 @@ export default function CreateCompetitionPage() {
 
                             <div className="space-y-4">
                               <h2 className="text-2xl font-bold text-center">
-                                Créez votre compétition en 5 étapes
+                                Créez votre compétition en 6 étapes
                               </h2>
                               <p className="text-muted-foreground text-center">
                                 Suivez ce guide pour configurer votre
@@ -452,11 +855,26 @@ export default function CreateCompetitionPage() {
                                 </CardContent>
                               </Card>
 
-                              <Card className="border border-amber-100 bg-amber-50/50 hover:bg-amber-50 transition-colors">
+                              <Card className="border border-pink-100 bg-pink-50/50 hover:bg-pink-50 transition-colors">
+                                <CardHeader className="pb-2">
+                                  <CardTitle className="text-lg flex items-center gap-2 text-pink-700">
+                                    <ImageIcon className="h-5 w-5" />
+                                    4. Médias et visuels
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                  <p className="text-sm text-pink-800">
+                                    Ajoutez des images attrayantes pour
+                                    promouvoir votre compétition.
+                                  </p>
+                                </CardContent>
+                              </Card>
+
+                              <Card className="border border-amber-100 bg-amber-50/50 hover:bg-amber-50 transition-colors md:col-span-2">
                                 <CardHeader className="pb-2">
                                   <CardTitle className="text-lg flex items-center gap-2 text-amber-700">
                                     <Settings className="h-5 w-5" />
-                                    4. Règles et paramètres
+                                    5. Règles et paramètres
                                   </CardTitle>
                                 </CardHeader>
                                 <CardContent>
@@ -475,7 +893,8 @@ export default function CreateCompetitionPage() {
                               </AlertTitle>
                               <AlertDescription className="text-blue-700">
                                 Une fois la compétition créée, vous recevrez un
-                                code unique à partager avec les participants.
+                                code unique à partager avec les participants et
+                                une carte pour les réseaux sociaux.
                               </AlertDescription>
                             </Alert>
 
@@ -600,23 +1019,142 @@ export default function CreateCompetitionPage() {
 
                               <FormField
                                 control={form.control as any}
+                                name="country"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel className="flex items-center gap-2">
+                                      <Globe className="h-4 w-4 text-emerald-600" />
+                                      Pays
+                                    </FormLabel>
+                                    <Select
+                                      onValueChange={field.onChange}
+                                      value={field.value}
+                                    >
+                                      <FormControl>
+                                        <SelectTrigger className="border-emerald-200 focus-visible:ring-emerald-500">
+                                          <SelectValue placeholder="Sélectionnez un pays" />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent>
+                                        {COUNTRIES.map((country) => (
+                                          <SelectItem
+                                            key={country.code}
+                                            value={country.code}
+                                          >
+                                            <div className="flex items-center">
+                                              <span className="mr-2">
+                                                {country.flag}
+                                              </span>
+                                              <span>{country.name}</span>
+                                            </div>
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <FormDescription>
+                                      Pays où se déroulera la compétition.
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control as any}
+                                name="city"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel className="flex items-center gap-2">
+                                      <Building className="h-4 w-4 text-blue-600" />
+                                      Ville
+                                    </FormLabel>
+                                    <Select
+                                      onValueChange={field.onChange}
+                                      value={field.value}
+                                      disabled={!form.watch("country")}
+                                    >
+                                      <FormControl>
+                                        <SelectTrigger className="border-blue-200 focus-visible:ring-blue-500">
+                                          <SelectValue placeholder="Sélectionnez une ville" />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent>
+                                        {availableCities.map((city) => (
+                                          <SelectItem
+                                            key={city.value}
+                                            value={city.value}
+                                          >
+                                            {city.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <FormDescription>
+                                      Ville où se déroulera la compétition.
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control as any}
+                                name="commune"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel className="flex items-center gap-2">
+                                      <Home className="h-4 w-4 text-amber-600" />
+                                      Commune / Quartier
+                                    </FormLabel>
+                                    <Select
+                                      onValueChange={field.onChange}
+                                      value={field.value}
+                                      disabled={!form.watch("city")}
+                                    >
+                                      <FormControl>
+                                        <SelectTrigger className="border-amber-200 focus-visible:ring-amber-500">
+                                          <SelectValue placeholder="Sélectionnez une commune (optionnel)" />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent>
+                                        {availableCommunes.map((commune) => (
+                                          <SelectItem
+                                            key={commune.value}
+                                            value={commune.value}
+                                          >
+                                            {commune.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <FormDescription>
+                                      Commune ou quartier où se déroulera la
+                                      compétition (optionnel).
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control as any}
                                 name="location"
                                 render={({ field }) => (
                                   <FormItem>
                                     <FormLabel className="flex items-center gap-2">
                                       <MapPin className="h-4 w-4 text-red-600" />
-                                      Ville / Localité
+                                      Adresse
                                     </FormLabel>
                                     <FormControl>
                                       <Input
-                                        placeholder="Ex: Abidjan, Cocody"
+                                        placeholder="Ex: 123 Rue du Sport"
                                         {...field}
                                         className="border-red-200 focus-visible:ring-red-500"
                                       />
                                     </FormControl>
                                     <FormDescription>
-                                      Indiquez la ville ou la localité où se
-                                      déroulera la compétition.
+                                      Indiquez l'adresse précise où se déroulera
+                                      la compétition.
                                     </FormDescription>
                                     <FormMessage />
                                   </FormItem>
@@ -629,19 +1167,19 @@ export default function CreateCompetitionPage() {
                                 render={({ field }) => (
                                   <FormItem>
                                     <FormLabel className="flex items-center gap-2">
-                                      <MapPin className="h-4 w-4 text-amber-600" />
+                                      <MapPin className="h-4 w-4 text-purple-600" />
                                       Lieu précis
                                     </FormLabel>
                                     <FormControl>
                                       <Input
                                         placeholder="Ex: Stade Municipal, Université X"
                                         {...field}
-                                        className="border-amber-200 focus-visible:ring-amber-500"
+                                        className="border-purple-200 focus-visible:ring-purple-500"
                                       />
                                     </FormControl>
                                     <FormDescription>
-                                      Précisez l'endroit exact où se déroulera
-                                      la compétition.
+                                      Précisez le nom de l'établissement ou du
+                                      lieu exact.
                                     </FormDescription>
                                     <FormMessage />
                                   </FormItem>
@@ -1109,6 +1647,231 @@ export default function CreateCompetitionPage() {
                         </AnimatePresence>
                       </TabsContent>
 
+                      <TabsContent value="media" className="space-y-4 pt-4">
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            initial="hidden"
+                            animate="visible"
+                            exit="hidden"
+                            variants={fadeIn}
+                            className="space-y-6"
+                          >
+                            <Alert className="bg-pink-50 border-pink-200">
+                              <ImageIcon className="h-4 w-4 text-pink-600" />
+                              <AlertTitle className="text-pink-800">
+                                Images de la compétition
+                              </AlertTitle>
+                              <AlertDescription className="text-pink-700">
+                                Ajoutez des images attrayantes pour promouvoir
+                                votre compétition sur les réseaux sociaux.
+                              </AlertDescription>
+                            </Alert>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                <FormLabel className="text-lg font-semibold flex items-center gap-2 text-emerald-700 mb-4">
+                                  <ImageIcon className="h-5 w-5" />
+                                  Logo / Image principale
+                                </FormLabel>
+                                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition-colors cursor-pointer relative overflow-hidden">
+                                  <input
+                                    type="file"
+                                    ref={imageInputRef}
+                                    className="hidden"
+                                    accept="image/*"
+                                    onChange={handleImageChange}
+                                  />
+                                  {imagePreview ? (
+                                    <div className="relative aspect-square w-full overflow-hidden rounded-md">
+                                      <Image
+                                        src={
+                                          imagePreview ||
+                                          "/placeholder.svg?height=200&width=200&query=placeholder"
+                                        }
+                                        alt="Aperçu de l'image"
+                                        fill
+                                        className="object-cover"
+                                      />
+                                      <div className="absolute inset-0 bg-black/30 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          onClick={() =>
+                                            imageInputRef.current?.click()
+                                          }
+                                        >
+                                          Changer
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div
+                                      className="flex flex-col items-center justify-center py-8"
+                                      onClick={() =>
+                                        imageInputRef.current?.click()
+                                      }
+                                    >
+                                      <Upload className="h-10 w-10 text-gray-400 mb-2" />
+                                      <h3 className="text-sm font-medium mb-1">
+                                        Cliquez pour ajouter une image
+                                      </h3>
+                                      <p className="text-xs text-gray-500">
+                                        SVG, PNG, JPG (max. 5MB)
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                  Cette image sera utilisée comme logo principal
+                                  de votre compétition.
+                                </p>
+                              </div>
+
+                              <div>
+                                <FormLabel className="text-lg font-semibold flex items-center gap-2 text-blue-700 mb-4">
+                                  <ImageIcon className="h-5 w-5" />
+                                  Bannière
+                                </FormLabel>
+                                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition-colors cursor-pointer relative overflow-hidden">
+                                  <input
+                                    type="file"
+                                    ref={bannerInputRef}
+                                    className="hidden"
+                                    accept="image/*"
+                                    onChange={handleBannerChange}
+                                  />
+                                  {bannerPreview ? (
+                                    <div className="relative aspect-[16/9] w-full overflow-hidden rounded-md">
+                                      <Image
+                                        src={
+                                          bannerPreview ||
+                                          "/placeholder.svg?height=200&width=200&query=placeholder"
+                                        }
+                                        alt="Aperçu de la bannière"
+                                        fill
+                                        className="object-cover"
+                                      />
+                                      <div className="absolute inset-0 bg-black/30 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          onClick={() =>
+                                            bannerInputRef.current?.click()
+                                          }
+                                        >
+                                          Changer
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div
+                                      className="flex flex-col items-center justify-center py-8"
+                                      onClick={() =>
+                                        bannerInputRef.current?.click()
+                                      }
+                                    >
+                                      <Upload className="h-10 w-10 text-gray-400 mb-2" />
+                                      <h3 className="text-sm font-medium mb-1">
+                                        Cliquez pour ajouter une bannière
+                                      </h3>
+                                      <p className="text-xs text-gray-500">
+                                        Format recommandé: 1200 x 630px
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                  Cette image sera utilisée comme bannière sur
+                                  la page de votre compétition.
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="bg-gray-50 p-4 rounded-lg border mt-4">
+                              <h3 className="text-lg font-semibold mb-2 flex items-center gap-2 text-purple-700">
+                                <Share2 className="h-5 w-5" />
+                                Prévisualisation pour les réseaux sociaux
+                              </h3>
+                              <p className="text-sm text-gray-600 mb-4">
+                                Une carte pour les réseaux sociaux sera
+                                automatiquement générée à partir de vos
+                                informations. Vous pourrez la télécharger et la
+                                partager une fois la compétition créée.
+                              </p>
+                              <div className="relative aspect-[1200/630] w-full overflow-hidden rounded-lg bg-gradient-to-r from-emerald-500 to-blue-500 shadow-md">
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-white p-6">
+                                  {imagePreview && (
+                                    <div className="relative h-24 w-24 rounded-full overflow-hidden mb-4 border-2 border-white">
+                                      <Image
+                                        src={
+                                          imagePreview ||
+                                          "/placeholder.svg?height=200&width=200&query=placeholder"
+                                        }
+                                        alt="Logo"
+                                        fill
+                                        className="object-cover"
+                                      />
+                                    </div>
+                                  )}
+                                  <h2 className="text-2xl font-bold text-center mb-2">
+                                    {form.watch("name") ||
+                                      "Nom de votre compétition"}
+                                  </h2>
+                                  <p className="text-lg font-medium mb-2">
+                                    {COMPETITION_CATEGORIES.find(
+                                      (c) => c.value === form.watch("category")
+                                    )?.label || "Catégorie"}
+                                  </p>
+                                  <p className="text-sm mb-1">
+                                    {form.watch("startDate") &&
+                                      form.watch("endDate") &&
+                                      `Du ${format(
+                                        form.watch("startDate"),
+                                        "dd MMMM yyyy",
+                                        {
+                                          locale: fr,
+                                        }
+                                      )} au ${format(
+                                        form.watch("endDate"),
+                                        "dd MMMM yyyy",
+                                        { locale: fr }
+                                      )}`}
+                                  </p>
+                                  <p className="text-sm">
+                                    {form.watch("venue") &&
+                                      form.watch("city") &&
+                                      `${form.watch("venue")}, ${
+                                        availableCities.find(
+                                          (c) => c.value === form.watch("city")
+                                        )?.label
+                                      }`}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex justify-between">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={goToPreviousTab}
+                              >
+                                <ChevronLeft className="mr-2 h-4 w-4" />
+                                Précédent
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={goToNextTab}
+                                className="bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 text-white"
+                              >
+                                Suivant
+                                <ChevronRight className="ml-2 h-4 w-4" />
+                              </Button>
+                            </div>
+                          </motion.div>
+                        </AnimatePresence>
+                      </TabsContent>
+
                       <TabsContent value="rules" className="space-y-4 pt-4">
                         <AnimatePresence mode="wait">
                           <motion.div
@@ -1153,7 +1916,7 @@ export default function CreateCompetitionPage() {
                                         <div className="flex flex-col">
                                           <span className="font-medium">
                                             Brouillon
-                                          </span>
+                                          </span>{" "}
                                           <span className="text-sm text-gray-500">
                                             La compétition ne sera pas visible
                                             par les participants
@@ -1285,6 +2048,129 @@ export default function CreateCompetitionPage() {
                           </motion.div>
                         </AnimatePresence>
                       </TabsContent>
+
+                      <TabsContent value="preview" className="space-y-4 pt-4">
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            initial="hidden"
+                            animate="visible"
+                            exit="hidden"
+                            variants={fadeIn}
+                            className="space-y-6"
+                          >
+                            <div className="text-center space-y-4">
+                              <div className="inline-flex items-center justify-center p-2 bg-green-100 rounded-full">
+                                <CheckCircle2 className="h-8 w-8 text-green-600" />
+                              </div>
+                              <h2 className="text-2xl font-bold">
+                                Compétition créée avec succès!
+                              </h2>
+                              <p className="text-gray-500">
+                                Votre compétition a été créée et est prête à
+                                être partagée. Utilisez la carte ci-dessous pour
+                                promouvoir votre événement sur les réseaux
+                                sociaux.
+                              </p>
+                            </div>
+
+                            <div className="bg-gray-50 p-4 rounded-lg border">
+                              <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                                <Share2 className="h-5 w-5 text-blue-600" />
+                                Carte pour les réseaux sociaux
+                              </h3>
+                              <div className="relative aspect-[1200/630] w-full overflow-hidden rounded-lg shadow-md mb-4">
+                                {socialCardPreview ? (
+                                  <Image
+                                    src={
+                                      socialCardPreview ||
+                                      "/placeholder.svg?height=200&width=200&query=placeholder"
+                                    }
+                                    alt="Carte sociale pour les réseaux sociaux"
+                                    fill
+                                    className="object-cover"
+                                  />
+                                ) : (
+                                  <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+                                    <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
+                                  </div>
+                                )}
+                              </div>
+                              <canvas
+                                ref={socialCardCanvasRef}
+                                className="hidden"
+                              />
+
+                              <div className="flex flex-wrap gap-2 justify-center">
+                                <Button
+                                  variant="outline"
+                                  className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100"
+                                  onClick={() => shareOnSocial("facebook")}
+                                >
+                                  <Facebook className="mr-2 h-4 w-4" />
+                                  Partager sur Facebook
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  className="bg-sky-50 text-sky-600 border-sky-200 hover:bg-sky-100"
+                                  onClick={() => shareOnSocial("twitter")}
+                                >
+                                  <Twitter className="mr-2 h-4 w-4" />
+                                  Partager sur Twitter
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  className="bg-pink-50 text-pink-600 border-pink-200 hover:bg-pink-100"
+                                  onClick={() => shareOnSocial("instagram")}
+                                >
+                                  <Instagram className="mr-2 h-4 w-4" />
+                                  Partager sur Instagram
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  className="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
+                                  onClick={downloadSocialCard}
+                                >
+                                  <Download className="mr-2 h-4 w-4" />
+                                  Télécharger l'image
+                                </Button>
+                              </div>
+                            </div>
+
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                              <h3 className="text-lg font-semibold mb-2 flex items-center gap-2 text-blue-700">
+                                <Info className="h-5 w-5" />
+                                Code unique de la compétition
+                              </h3>
+                              <div className="flex items-center justify-center p-3 bg-white rounded-md border border-blue-200 mb-2">
+                                <span className="text-2xl font-mono font-bold text-blue-700">
+                                  {uniqueCode}
+                                </span>
+                              </div>
+                              <p className="text-sm text-blue-600 text-center">
+                                Partagez ce code avec les participants pour
+                                qu'ils puissent rejoindre votre compétition.
+                              </p>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                              <Button
+                                onClick={handleViewDetails}
+                                className="bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 text-white"
+                              >
+                                <Eye className="mr-2 h-4 w-4" />
+                                Voir les détails de la compétition
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={handleDashboard}
+                              >
+                                <LayoutDashboard className="mr-2 h-4 w-4" />
+                                Retour au tableau de bord
+                              </Button>
+                            </div>
+                          </motion.div>
+                        </AnimatePresence>
+                      </TabsContent>
                     </Tabs>
                   </form>
                 </Form>
@@ -1361,6 +2247,21 @@ export default function CreateCompetitionPage() {
                 <Separator />
 
                 <div className="flex items-start space-x-2">
+                  <div className="bg-pink-100 text-pink-700 rounded-full p-1 mt-0.5">
+                    <ImageIcon className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium">Médias et visuels</h3>
+                    <p className="text-xs text-gray-500">
+                      Ajoutez des images attrayantes pour promouvoir votre
+                      compétition.
+                    </p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="flex items-start space-x-2">
                   <div className="bg-amber-100 text-amber-700 rounded-full p-1 mt-0.5">
                     <Settings className="h-4 w-4" />
                   </div>
@@ -1405,3 +2306,16 @@ export default function CreateCompetitionPage() {
     </div>
   );
 }
+
+// Composants manquants pour la prévisualisation
+const Download: React.FC<{ className?: string }> = ({ className }) => {
+  return <Upload className={className} />;
+};
+
+const Eye: React.FC<{ className?: string }> = ({ className }) => {
+  return <Info className={className} />;
+};
+
+const LayoutDashboard: React.FC<{ className?: string }> = ({ className }) => {
+  return <Layers className={className} />;
+};

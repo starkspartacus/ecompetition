@@ -167,9 +167,13 @@ model Competition {
   title               String
   address             String
   venue               String
+  country             String?            // Nouveau champ pour le pays
+  city                String?            // Nouveau champ pour la ville
+  commune             String?            // Nouveau champ pour la commune
   maxParticipants     Int
   imageUrl            String?
   bannerUrl           String?
+  socialCardUrl       String?            // Nouveau champ pour la carte sociale générée
   category            CompetitionCategory
   registrationStartDate DateTime
   registrationDeadline DateTime
@@ -313,5 +317,3 @@ model Notification {
   
   createdAt   DateTime @default(now())
 }
-
-
