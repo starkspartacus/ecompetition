@@ -87,12 +87,22 @@ export default function SigninPage() {
   const phoneForm = useForm<z.infer<typeof phoneSigninSchema>>({
     resolver: zodResolver(phoneSigninSchema),
     defaultValues: {
-      countryCode: "",
+      countryCode: "FR", // France par défaut
       phoneNumber: "",
       password: "",
     },
     mode: "onChange", // Active la validation en temps réel
   });
+
+  // Initialiser le code de pays par défaut
+  useEffect(() => {
+    const defaultCountry = COUNTRIES.find((c) => c.code === "FR");
+    if (defaultCountry) {
+      setSelectedCountry(defaultCountry);
+      setDialCode(defaultCountry.dialCode);
+      phoneForm.setValue("countryCode", "FR");
+    }
+  }, [phoneForm]);
 
   // Réinitialiser l'erreur de connexion lorsque l'utilisateur modifie un champ
   useEffect(() => {
@@ -176,11 +186,26 @@ export default function SigninPage() {
       setIsLoading(true);
       setLoginError(null);
 
+      // S'assurer que le dialCode est défini
+      if (!dialCode) {
+        const country = COUNTRIES.find((c) => c.code === values.countryCode);
+        if (country) {
+          setDialCode(country.dialCode);
+        }
+      }
+
+      // Nettoyer le numéro de téléphone (supprimer les espaces et les zéros au début)
+      const cleanPhoneNumber = values.phoneNumber
+        .replace(/\s+/g, "")
+        .replace(/^0+/, "");
+
       // Format phone number with country code
-      const formattedPhoneNumber = `${dialCode}${values.phoneNumber.replace(
-        /^0+/,
-        ""
-      )}`;
+      const formattedPhoneNumber = `${dialCode}${cleanPhoneNumber}`;
+
+      console.log(
+        "Tentative de connexion avec le numéro:",
+        formattedPhoneNumber
+      );
 
       const result = await signIn("credentials", {
         phoneNumber: formattedPhoneNumber,
@@ -480,19 +505,30 @@ export default function SigninPage() {
                                   <div className="relative">
                                     <Select
                                       value={field.value}
-                                      onValueChange={field.onChange}
+                                      onValueChange={(value) => {
+                                        field.onChange(value);
+                                        handleCountryChange(value);
+                                      }}
                                     >
                                       <SelectTrigger className="bg-white/80 backdrop-blur-sm border-emerald-600/20 hover:border-emerald-600/40 transition-all">
-                                        <SelectValue placeholder="Sélectionnez un pays" />
+                                        <SelectValue placeholder="Sélectionnez un pays">
+                                          {selectedCountry && (
+                                            <div className="flex items-center">
+                                              <span className="mr-2">
+                                                {selectedCountry.flag}
+                                              </span>
+                                              <span>
+                                                {selectedCountry.name}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </SelectValue>
                                       </SelectTrigger>
                                       <SelectContent className="max-h-[300px]">
                                         {COUNTRIES.map((country) => (
                                           <SelectItem
                                             key={country.code}
                                             value={country.code}
-                                            onClick={() =>
-                                              handleCountryChange(country.code)
-                                            }
                                           >
                                             <div className="flex items-center">
                                               <span className="mr-2">
@@ -531,7 +567,7 @@ export default function SigninPage() {
                                           <span className="mr-1">
                                             {selectedCountry.flag}
                                           </span>
-                                          <span className="text-xs">
+                                          <span className="text-xs font-medium">
                                             {selectedCountry.dialCode}
                                           </span>
                                         </div>
@@ -557,6 +593,10 @@ export default function SigninPage() {
                                   </div>
                                 </FormControl>
                                 <FormMessage />
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Exemple: {selectedCountry?.dialCode}123456789
+                                  (sans espaces ni tirets)
+                                </p>
                               </FormItem>
                             )}
                           />

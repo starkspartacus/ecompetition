@@ -1,12 +1,9 @@
-import { ObjectId } from "mongodb";
-import { hash } from "bcryptjs";
-import { UserRole, AuthMethod, validateUser } from "./prisma-schema";
-import { connectDB } from "./mongodb-client";
+import { hash } from "bcrypt";
+import { connectDB } from "@/lib/mongodb-client";
+import { UserRole } from "@/lib/prisma-schema";
 
-/**
- * Vérifie si un email existe déjà
- */
-export async function checkEmailExists(email: string): Promise<boolean> {
+// Vérifier si un email existe déjà
+export async function checkEmailExists(email: string) {
   try {
     const db = await connectDB();
     const collection = db.collection("User");
@@ -19,17 +16,25 @@ export async function checkEmailExists(email: string): Promise<boolean> {
   }
 }
 
-/**
- * Vérifie si un numéro de téléphone existe déjà
- */
-export async function checkPhoneNumberExists(
-  phoneNumber: string
-): Promise<boolean> {
+// Vérifier si un numéro de téléphone existe déjà
+export async function checkPhoneNumberExists(phoneNumber: string) {
   try {
     const db = await connectDB();
     const collection = db.collection("User");
 
-    const user = await collection.findOne({ phoneNumber });
+    // Recherche avec et sans le préfixe "+" pour plus de flexibilité
+    const normalizedPhoneNumber = phoneNumber.startsWith("+")
+      ? phoneNumber
+      : `+${phoneNumber}`;
+
+    const user = await collection.findOne({
+      $or: [
+        { phoneNumber },
+        { phoneNumber: normalizedPhoneNumber },
+        { phoneNumber: phoneNumber.replace(/^\+/, "") }, // Sans le "+" s'il existe
+      ],
+    });
+
     return !!user;
   } catch (error) {
     console.error(
@@ -40,92 +45,62 @@ export async function checkPhoneNumberExists(
   }
 }
 
-/**
- * Crée un nouvel utilisateur
- */
+// Créer un nouvel utilisateur
 export async function createUser(userData: any) {
   try {
-    console.log(
-      "Création d'un utilisateur avec les données:",
-      JSON.stringify(userData, null, 2)
-    );
-
-    // Normaliser les champs country/countryCode
-    if (userData.country && !userData.countryCode) {
-      userData.countryCode = userData.country;
-    } else if (!userData.countryCode && !userData.country) {
-      userData.countryCode = "FR"; // Valeur par défaut
-    }
-
-    // Valider les données utilisateur
-    const validatedUser = validateUser({
-      ...userData,
-      role: userData.role || UserRole.PARTICIPANT,
-      preferredAuthMethod: userData.preferredAuthMethod || AuthMethod.EMAIL,
-      isVerified: false,
-    });
-
     const db = await connectDB();
     const collection = db.collection("User");
 
-    const result = await collection.insertOne({
-      ...validatedUser,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    // Hacher le mot de passe
+    if (userData.password) {
+      userData.password = await hash(userData.password, 10);
+    }
 
-    return {
-      ...validatedUser,
-      id: result.insertedId.toString(),
-    };
+    // Ajouter un rôle par défaut si non spécifié
+    if (!userData.role) {
+      userData.role = UserRole.PARTICIPANT;
+    }
+
+    // Ajouter la date de création
+    userData.createdAt = new Date();
+    userData.updatedAt = new Date();
+
+    const result = await collection.insertOne(userData);
+    return { id: result.insertedId, ...userData };
   } catch (error) {
     console.error("Erreur lors de la création de l'utilisateur:", error);
     throw error;
   }
 }
 
-/**
- * Récupère un utilisateur par son ID
- */
-export async function getUserById(userId: string) {
+// Récupérer un utilisateur par son ID
+export async function getUserById(id: string) {
   try {
     const db = await connectDB();
     const collection = db.collection("User");
 
-    const user = await collection.findOne({ _id: new ObjectId(userId) });
-
-    if (!user) {
-      return null;
-    }
-
-    return {
-      ...user,
-      id: user._id.toString(),
-    };
+    const user = await collection.findOne({ _id: id });
+    return user;
   } catch (error) {
-    console.error("Erreur lors de la récupération de l'utilisateur:", error);
+    console.error(
+      "Erreur lors de la récupération de l'utilisateur par ID:",
+      error
+    );
     throw error;
   }
 }
 
-/**
- * Récupère un utilisateur par son email
- */
+// Récupérer un utilisateur par son email
 export async function getUserByEmail(email: string) {
   try {
     const db = await connectDB();
     const collection = db.collection("User");
 
+    console.log("Recherche d'utilisateur par email:", email);
     const user = await collection.findOne({ email });
+    console.log("Utilisateur trouvé:", user ? "oui" : "non");
 
-    if (!user) {
-      return null;
-    }
-
-    return {
-      ...user,
-      id: user._id.toString(),
-    };
+    return user;
   } catch (error) {
     console.error(
       "Erreur lors de la récupération de l'utilisateur par email:",
@@ -135,24 +110,39 @@ export async function getUserByEmail(email: string) {
   }
 }
 
-/**
- * Récupère un utilisateur par son numéro de téléphone
- */
+// Récupérer un utilisateur par son numéro de téléphone
 export async function getUserByPhoneNumber(phoneNumber: string) {
   try {
     const db = await connectDB();
     const collection = db.collection("User");
 
-    const user = await collection.findOne({ phoneNumber });
+    console.log("Recherche d'utilisateur par téléphone:", phoneNumber);
 
-    if (!user) {
-      return null;
-    }
+    // Normaliser le numéro de téléphone pour la recherche
+    const normalizedPhoneNumber = phoneNumber.startsWith("+")
+      ? phoneNumber
+      : `+${phoneNumber}`;
 
-    return {
-      ...user,
-      id: user._id.toString(),
-    };
+    // Rechercher avec différentes variantes du numéro
+    const user = await collection.findOne({
+      $or: [
+        { phoneNumber },
+        { phoneNumber: normalizedPhoneNumber },
+        { phoneNumber: phoneNumber.replace(/^\+/, "") }, // Sans le "+" s'il existe
+      ],
+    });
+
+    console.log(
+      "Utilisateur trouvé par téléphone:",
+      user ? user.id : "non trouvé"
+    );
+    console.log("Variantes de numéro recherchées:", [
+      phoneNumber,
+      normalizedPhoneNumber,
+      phoneNumber.replace(/^\+/, ""),
+    ]);
+
+    return user;
   } catch (error) {
     console.error(
       "Erreur lors de la récupération de l'utilisateur par téléphone:",
@@ -162,77 +152,54 @@ export async function getUserByPhoneNumber(phoneNumber: string) {
   }
 }
 
-/**
- * Met à jour un utilisateur
- */
-export async function updateUser(userId: string, userData: any) {
+// Mettre à jour un utilisateur
+export async function updateUser(id: string, userData: any) {
   try {
-    // Normaliser les champs country/countryCode
-    if (userData.country && !userData.countryCode) {
-      userData.countryCode = userData.country;
-      delete userData.country; // Supprimer le champ country pour éviter la duplication
-    }
-
     const db = await connectDB();
     const collection = db.collection("User");
 
-    const updateData = {
-      ...userData,
-      updatedAt: new Date(),
-    };
-
-    const result = await collection.updateOne(
-      { _id: new ObjectId(userId) },
-      { $set: updateData }
-    );
-
-    if (result.matchedCount === 0) {
-      throw new Error("Utilisateur non trouvé");
+    // Ne pas mettre à jour le mot de passe ici
+    if (userData.password) {
+      delete userData.password;
     }
 
-    return {
-      ...updateData,
-      id: userId,
-    };
+    // Mettre à jour la date de modification
+    userData.updatedAt = new Date();
+
+    await collection.updateOne({ _id: id }, { $set: userData });
+
+    return await getUserById(id);
   } catch (error) {
     console.error("Erreur lors de la mise à jour de l'utilisateur:", error);
     throw error;
   }
 }
 
-/**
- * Supprime un utilisateur
- */
-export async function deleteUser(userId: string) {
+// Supprimer un utilisateur
+export async function deleteUser(id: string) {
   try {
     const db = await connectDB();
     const collection = db.collection("User");
 
-    const result = await collection.deleteOne({ _id: new ObjectId(userId) });
-
-    if (result.deletedCount === 0) {
-      throw new Error("Utilisateur non trouvé");
-    }
-
-    return { success: true };
+    await collection.deleteOne({ _id: id });
+    return true;
   } catch (error) {
     console.error("Erreur lors de la suppression de l'utilisateur:", error);
     throw error;
   }
 }
 
-/**
- * Change le mot de passe d'un utilisateur
- */
-export async function changePassword(userId: string, newPassword: string) {
+// Changer le mot de passe d'un utilisateur
+export async function changePassword(id: string, newPassword: string) {
   try {
-    const hashedPassword = await hash(newPassword, 10);
-
     const db = await connectDB();
     const collection = db.collection("User");
 
-    const result = await collection.updateOne(
-      { _id: new ObjectId(userId) },
+    // Hacher le nouveau mot de passe
+    const hashedPassword = await hash(newPassword, 10);
+
+    await collection.updateOne(
+      { _id: id },
       {
         $set: {
           password: hashedPassword,
@@ -241,46 +208,26 @@ export async function changePassword(userId: string, newPassword: string) {
       }
     );
 
-    if (result.matchedCount === 0) {
-      throw new Error("Utilisateur non trouvé");
-    }
-
-    return { success: true };
+    return true;
   } catch (error) {
     console.error("Erreur lors du changement de mot de passe:", error);
     throw error;
   }
 }
 
-/**
- * Script pour normaliser les données utilisateur existantes
- */
+// Normaliser les données utilisateur
 export async function normalizeUserData() {
   try {
     const db = await connectDB();
     const collection = db.collection("User");
 
-    // Trouver tous les utilisateurs qui ont un champ country mais pas countryCode
-    const users = await collection
-      .find({
-        country: { $exists: true },
-        countryCode: { $exists: false },
-      })
-      .toArray();
+    // Ajouter un rôle par défaut à tous les utilisateurs qui n'en ont pas
+    await collection.updateMany(
+      { role: { $exists: false } },
+      { $set: { role: UserRole.PARTICIPANT } }
+    );
 
-    console.log(`Normalisation des données pour ${users.length} utilisateurs`);
-
-    for (const user of users) {
-      await collection.updateOne(
-        { _id: user._id },
-        {
-          $set: { countryCode: user.country },
-          $unset: { country: "" }, // Supprimer le champ country
-        }
-      );
-    }
-
-    return { count: users.length };
+    return true;
   } catch (error) {
     console.error(
       "Erreur lors de la normalisation des données utilisateur:",
