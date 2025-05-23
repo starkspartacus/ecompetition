@@ -4,7 +4,6 @@ import GoogleProvider from "next-auth/providers/google";
 import { compare } from "bcrypt";
 import { getUserByEmail, getUserByPhoneNumber } from "@/lib/auth-service";
 import { CustomPrismaAdapter } from "@/lib/custom-prisma-adapter";
-import { UserRole } from "@/lib/prisma-schema";
 
 export const authOptions: NextAuthOptions = {
   adapter: CustomPrismaAdapter(),
@@ -28,7 +27,7 @@ export const authOptions: NextAuthOptions = {
           name: profile.name,
           email: profile.email,
           image: profile.picture,
-          role: UserRole.PARTICIPANT,
+          role: "PARTICIPANT",
         };
       },
     }),
@@ -91,11 +90,17 @@ export const authOptions: NextAuthOptions = {
 
           console.log("Authentification réussie pour:", user.id);
 
+          // Vérifier que les propriétés nécessaires existent
+          const firstName = user.firstName || "";
+          const lastName = user.lastName || "";
+          const email = user.email || "";
+          const role = user.role || "PARTICIPANT";
+
           return {
             id: user.id,
-            email: user.email,
-            name: `${user.firstName} ${user.lastName}`,
-            role: user.role || "USER",
+            email: email,
+            name: `${firstName} ${lastName}`.trim() || "Utilisateur",
+            role: role,
           };
         } catch (error) {
           console.error("Auth error:", error);
@@ -105,17 +110,33 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
+      // Conserver les données existantes lors des rafraîchissements de token
       if (user) {
         token.id = user.id;
-        token.role = user.role || "USER";
+        token.role = user.role || "PARTICIPANT";
+
+        // Ajouter des logs pour déboguer
+        console.log("JWT Callback - User:", { id: user.id, role: user.role });
+        console.log("JWT Callback - Token après mise à jour:", token);
       }
       return token;
     },
     async session({ session, token }) {
+      // S'assurer que les données du token sont transmises à la session
       if (token && session.user) {
         session.user.id = token.id;
-        session.user.role = token.role || "USER";
+        session.user.role = token.role || "PARTICIPANT";
+
+        // Ajouter des logs pour déboguer
+        console.log("Session Callback - Token:", {
+          id: token.id,
+          role: token.role,
+        });
+        console.log(
+          "Session Callback - Session après mise à jour:",
+          session.user
+        );
       }
       return session;
     },

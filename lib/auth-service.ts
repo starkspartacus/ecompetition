@@ -1,106 +1,52 @@
 import { hash } from "bcrypt";
-import { connectDB } from "@/lib/mongodb-client";
-import { UserRole } from "@/lib/prisma-schema";
+import { connectDB } from "./mongodb-client";
+import { ObjectId } from "mongodb";
 
-// Vérifier si un email existe déjà
-export async function checkEmailExists(email: string) {
-  try {
-    const db = await connectDB();
-    const collection = db.collection("User");
-
-    const user = await collection.findOne({ email });
-    return !!user;
-  } catch (error) {
-    console.error("Erreur lors de la vérification de l'email:", error);
-    throw error;
-  }
+// Interface pour l'utilisateur MongoDB
+interface MongoUser {
+  _id: ObjectId;
+  email?: string;
+  password?: string;
+  phoneNumber?: string;
+  firstName?: string;
+  lastName?: string;
+  role?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  isVerified?: boolean;
+  [key: string]: any; // Pour les autres propriétés
 }
 
-// Vérifier si un numéro de téléphone existe déjà
-export async function checkPhoneNumberExists(phoneNumber: string) {
+/**
+ * Récupère un utilisateur par son email
+ */
+export async function getUserByEmail(email: string): Promise<MongoUser | null> {
   try {
-    const db = await connectDB();
-    const collection = db.collection("User");
-
-    // Recherche avec et sans le préfixe "+" pour plus de flexibilité
-    const normalizedPhoneNumber = phoneNumber.startsWith("+")
-      ? phoneNumber
-      : `+${phoneNumber}`;
-
-    const user = await collection.findOne({
-      $or: [
-        { phoneNumber },
-        { phoneNumber: normalizedPhoneNumber },
-        { phoneNumber: phoneNumber.replace(/^\+/, "") }, // Sans le "+" s'il existe
-      ],
-    });
-
-    return !!user;
-  } catch (error) {
-    console.error(
-      "Erreur lors de la vérification du numéro de téléphone:",
-      error
-    );
-    throw error;
-  }
-}
-
-// Créer un nouvel utilisateur
-export async function createUser(userData: any) {
-  try {
-    const db = await connectDB();
-    const collection = db.collection("User");
-
-    // Hacher le mot de passe
-    if (userData.password) {
-      userData.password = await hash(userData.password, 10);
-    }
-
-    // Ajouter un rôle par défaut si non spécifié
-    if (!userData.role) {
-      userData.role = UserRole.PARTICIPANT;
-    }
-
-    // Ajouter la date de création
-    userData.createdAt = new Date();
-    userData.updatedAt = new Date();
-
-    const result = await collection.insertOne(userData);
-    return { id: result.insertedId, ...userData };
-  } catch (error) {
-    console.error("Erreur lors de la création de l'utilisateur:", error);
-    throw error;
-  }
-}
-
-// Récupérer un utilisateur par son ID
-export async function getUserById(id: string) {
-  try {
-    const db = await connectDB();
-    const collection = db.collection("User");
-
-    const user = await collection.findOne({ _id: id });
-    return user;
-  } catch (error) {
-    console.error(
-      "Erreur lors de la récupération de l'utilisateur par ID:",
-      error
-    );
-    throw error;
-  }
-}
-
-// Récupérer un utilisateur par son email
-export async function getUserByEmail(email: string) {
-  try {
-    const db = await connectDB();
-    const collection = db.collection("User");
-
     console.log("Recherche d'utilisateur par email:", email);
-    const user = await collection.findOne({ email });
-    console.log("Utilisateur trouvé:", user ? "oui" : "non");
 
-    return user;
+    // Utiliser le client MongoDB natif au lieu de Prisma
+    const db = await connectDB();
+
+    if (!db) {
+      throw new Error("Impossible de se connecter à la base de données");
+    }
+
+    const collection = db.collection("User");
+    const user = await collection.findOne({ email });
+
+    console.log("Utilisateur trouvé:", user ? "oui" : "non");
+    if (user) {
+      console.log("ID de l'utilisateur:", user._id.toString());
+      // Convertir l'ObjectId en string pour l'ID
+      return {
+        ...user,
+        id: user._id.toString(),
+        createdAt: user.createdAt.toISOString(),
+        updatedAt: user.updatedAt.toISOString(),
+      } as MongoUser;
+    }
+
+    return null;
   } catch (error) {
     console.error(
       "Erreur lors de la récupération de l'utilisateur par email:",
@@ -110,39 +56,58 @@ export async function getUserByEmail(email: string) {
   }
 }
 
-// Récupérer un utilisateur par son numéro de téléphone
-export async function getUserByPhoneNumber(phoneNumber: string) {
+/**
+ * Récupère un utilisateur par son numéro de téléphone
+ * Gère les formats avec ou sans le préfixe "+"
+ */
+export async function getUserByPhoneNumber(
+  phoneNumber: string
+): Promise<MongoUser | null> {
   try {
-    const db = await connectDB();
-    const collection = db.collection("User");
-
     console.log("Recherche d'utilisateur par téléphone:", phoneNumber);
 
-    // Normaliser le numéro de téléphone pour la recherche
+    // Normaliser le numéro de téléphone (avec et sans le "+")
     const normalizedPhoneNumber = phoneNumber.startsWith("+")
       ? phoneNumber
       : `+${phoneNumber}`;
+    const alternativePhoneNumber = phoneNumber.startsWith("+")
+      ? phoneNumber.substring(1)
+      : phoneNumber;
 
-    // Rechercher avec différentes variantes du numéro
-    const user = await collection.findOne({
-      $or: [
-        { phoneNumber },
-        { phoneNumber: normalizedPhoneNumber },
-        { phoneNumber: phoneNumber.replace(/^\+/, "") }, // Sans le "+" s'il existe
-      ],
+    console.log("Numéros de téléphone normalisés:", {
+      normalizedPhoneNumber,
+      alternativePhoneNumber,
     });
 
-    console.log(
-      "Utilisateur trouvé par téléphone:",
-      user ? user.id : "non trouvé"
-    );
-    console.log("Variantes de numéro recherchées:", [
-      phoneNumber,
-      normalizedPhoneNumber,
-      phoneNumber.replace(/^\+/, ""),
-    ]);
+    // Utiliser le client MongoDB natif au lieu de Prisma
+    const db = await connectDB();
 
-    return user;
+    if (!db) {
+      throw new Error("Impossible de se connecter à la base de données");
+    }
+
+    const collection = db.collection("User");
+
+    // Rechercher avec les deux formats
+    let user = await collection.findOne({ phoneNumber: normalizedPhoneNumber });
+
+    if (!user) {
+      user = await collection.findOne({ phoneNumber: alternativePhoneNumber });
+    }
+
+    console.log("Utilisateur trouvé:", user ? "oui" : "non");
+    if (user) {
+      console.log("ID de l'utilisateur:", user._id.toString());
+      // Convertir l'ObjectId en string pour l'ID
+      return {
+        ...user,
+        id: user._id.toString(),
+        createdAt: user.createdAt.toISOString(),
+        updatedAt: user.updatedAt.toISOString(),
+      } as MongoUser;
+    }
+
+    return null;
   } catch (error) {
     console.error(
       "Erreur lors de la récupération de l'utilisateur par téléphone:",
@@ -152,11 +117,116 @@ export async function getUserByPhoneNumber(phoneNumber: string) {
   }
 }
 
-// Mettre à jour un utilisateur
-export async function updateUser(id: string, userData: any) {
+/**
+ * Crée un nouvel utilisateur
+ */
+export async function createUser(userData: any): Promise<MongoUser> {
+  try {
+    // Hacher le mot de passe
+    if (userData.password) {
+      userData.password = await hash(userData.password, 10);
+    }
+
+    // Utiliser le client MongoDB natif au lieu de Prisma
+    const db = await connectDB();
+
+    if (!db) {
+      throw new Error("Impossible de se connecter à la base de données");
+    }
+
+    const collection = db.collection("User");
+
+    // Ajouter des champs par défaut
+    const user = {
+      ...userData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      isVerified: false,
+    };
+
+    const result = await collection.insertOne(user);
+
+    // Retourner le document inséré avec son ID
+    return {
+      ...user,
+      _id: result.insertedId,
+      id: result.insertedId.toString(),
+      createdAt: user.createdAt.toISOString(),
+      updatedAt: user.updatedAt.toISOString(),
+    } as MongoUser;
+  } catch (error) {
+    console.error("Erreur lors de la création de l'utilisateur:", error);
+    throw error;
+  }
+}
+
+/**
+ * Récupère un utilisateur par son ID
+ */
+export async function getUserById(id: string): Promise<MongoUser | null> {
   try {
     const db = await connectDB();
+
+    if (!db) {
+      throw new Error("Impossible de se connecter à la base de données");
+    }
+
     const collection = db.collection("User");
+
+    // Convertir l'ID en ObjectId
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(id);
+    } catch (error) {
+      console.error("ID invalide:", id);
+      return null;
+    }
+
+    const user = await collection.findOne({ _id: objectId });
+
+    if (user) {
+      return {
+        ...user,
+        id: user._id.toString(),
+        createdAt: user.createdAt.toISOString(),
+        updatedAt: user.updatedAt.toISOString(),
+      } as MongoUser;
+    }
+
+    return null;
+  } catch (error) {
+    console.error(
+      "Erreur lors de la récupération de l'utilisateur par ID:",
+      error
+    );
+    throw error;
+  }
+}
+
+/**
+ * Met à jour un utilisateur
+ */
+export async function updateUser(
+  id: string,
+  userData: any
+): Promise<MongoUser | null> {
+  try {
+    const db = await connectDB();
+
+    if (!db) {
+      throw new Error("Impossible de se connecter à la base de données");
+    }
+
+    const collection = db.collection("User");
+
+    // Convertir l'ID en ObjectId
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(id);
+    } catch (error) {
+      console.error("ID invalide:", id);
+      return null;
+    }
 
     // Ne pas mettre à jour le mot de passe ici
     if (userData.password) {
@@ -166,40 +236,75 @@ export async function updateUser(id: string, userData: any) {
     // Mettre à jour la date de modification
     userData.updatedAt = new Date();
 
-    await collection.updateOne({ _id: id }, { $set: userData });
+    await collection.updateOne({ _id: objectId }, { $set: userData });
 
-    return await getUserById(id);
+    return getUserById(id);
   } catch (error) {
     console.error("Erreur lors de la mise à jour de l'utilisateur:", error);
     throw error;
   }
 }
 
-// Supprimer un utilisateur
-export async function deleteUser(id: string) {
+/**
+ * Supprime un utilisateur
+ */
+export async function deleteUser(id: string): Promise<boolean> {
   try {
     const db = await connectDB();
+
+    if (!db) {
+      throw new Error("Impossible de se connecter à la base de données");
+    }
+
     const collection = db.collection("User");
 
-    await collection.deleteOne({ _id: id });
-    return true;
+    // Convertir l'ID en ObjectId
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(id);
+    } catch (error) {
+      console.error("ID invalide:", id);
+      return false;
+    }
+
+    const result = await collection.deleteOne({ _id: objectId });
+    return result.deletedCount > 0;
   } catch (error) {
     console.error("Erreur lors de la suppression de l'utilisateur:", error);
     throw error;
   }
 }
 
-// Changer le mot de passe d'un utilisateur
-export async function changePassword(id: string, newPassword: string) {
+/**
+ * Change le mot de passe d'un utilisateur
+ */
+export async function changePassword(
+  id: string,
+  newPassword: string
+): Promise<boolean> {
   try {
     const db = await connectDB();
+
+    if (!db) {
+      throw new Error("Impossible de se connecter à la base de données");
+    }
+
     const collection = db.collection("User");
+
+    // Convertir l'ID en ObjectId
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(id);
+    } catch (error) {
+      console.error("ID invalide:", id);
+      return false;
+    }
 
     // Hacher le nouveau mot de passe
     const hashedPassword = await hash(newPassword, 10);
 
-    await collection.updateOne(
-      { _id: id },
+    const result = await collection.updateOne(
+      { _id: objectId },
       {
         $set: {
           password: hashedPassword,
@@ -208,26 +313,33 @@ export async function changePassword(id: string, newPassword: string) {
       }
     );
 
-    return true;
+    return result.modifiedCount > 0;
   } catch (error) {
     console.error("Erreur lors du changement de mot de passe:", error);
     throw error;
   }
 }
 
-// Normaliser les données utilisateur
-export async function normalizeUserData() {
+/**
+ * Normalise les données utilisateur
+ */
+export async function normalizeUserData(): Promise<boolean> {
   try {
     const db = await connectDB();
+
+    if (!db) {
+      throw new Error("Impossible de se connecter à la base de données");
+    }
+
     const collection = db.collection("User");
 
     // Ajouter un rôle par défaut à tous les utilisateurs qui n'en ont pas
-    await collection.updateMany(
+    const result = await collection.updateMany(
       { role: { $exists: false } },
-      { $set: { role: UserRole.PARTICIPANT } }
+      { $set: { role: "PARTICIPANT" } }
     );
 
-    return true;
+    return result.modifiedCount > 0;
   } catch (error) {
     console.error(
       "Erreur lors de la normalisation des données utilisateur:",

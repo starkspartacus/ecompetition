@@ -21,7 +21,7 @@ export function CustomPrismaAdapter(): Adapter {
       // Ajouter le rôle à l'utilisateur
       return {
         ...user,
-        role: user.role || "USER", // Valeur par défaut si le rôle n'est pas défini
+        role: user.role || "PARTICIPANT", // Valeur par défaut si le rôle n'est pas défini
       } as AdapterUser;
     },
 
@@ -36,7 +36,7 @@ export function CustomPrismaAdapter(): Adapter {
       // Ajouter le rôle à l'utilisateur
       return {
         ...user,
-        role: user.role || "USER", // Valeur par défaut si le rôle n'est pas défini
+        role: user.role || "PARTICIPANT", // Valeur par défaut si le rôle n'est pas défini
       } as AdapterUser;
     },
 
@@ -66,7 +66,7 @@ export function CustomPrismaAdapter(): Adapter {
       const newUser = await prisma.user.create({
         data: {
           ...user,
-          role: user.role || "USER", // Valeur par défaut si le rôle n'est pas défini
+          role: user.role || "PARTICIPANT", // Valeur par défaut si le rôle n'est pas défini
         },
       });
 
@@ -79,7 +79,7 @@ export function CustomPrismaAdapter(): Adapter {
         where: { id: user.id },
         data: {
           ...user,
-          role: user.role || "USER", // Préserver le rôle ou utiliser la valeur par défaut
+          role: user.role || "PARTICIPANT", // Préserver le rôle ou utiliser la valeur par défaut
         },
       });
 
