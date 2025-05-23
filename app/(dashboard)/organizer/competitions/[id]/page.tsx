@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Edit,
   Calendar,
@@ -18,8 +18,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { CompetitionPromoCard } from "@/components/competition-promo-card";
 
 interface CompetitionParams {
   id: string;
@@ -46,14 +46,19 @@ interface Competition {
   uniqueCode?: string;
 }
 
-const CompetitionDetailsPage = ({ params }: { params: CompetitionParams }) => {
-  // Utiliser le typage correct pour params
-  const { id } = params;
+const CompetitionDetailsPage = ({
+  params,
+}: {
+  params: CompetitionParams | Promise<CompetitionParams>;
+}) => {
+  // Utiliser React.use() pour déballer params s'il s'agit d'une promesse
+  const resolvedParams = params instanceof Promise ? React.use(params) : params;
+  const { id } = resolvedParams;
+
   const router = useRouter();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showShareOptions, setShowShareOptions] = useState(false);
 
   useEffect(() => {
     const fetchCompetitionDetails = async () => {
@@ -89,15 +94,6 @@ const CompetitionDetailsPage = ({ params }: { params: CompetitionParams }) => {
 
     fetchCompetitionDetails();
   }, [id]);
-
-  const handleShare = () => {
-    setShowShareOptions(!showShareOptions);
-  };
-
-  const handleRegister = () => {
-    // Logique d'inscription
-    console.log("Inscription à la compétition");
-  };
 
   if (loading) {
     return (
@@ -156,6 +152,23 @@ const CompetitionDetailsPage = ({ params }: { params: CompetitionParams }) => {
     );
   }
 
+  // Déterminer le titre à afficher (title ou name)
+  const competitionTitle =
+    competition.title || competition.name || "Compétition sans titre";
+
+  // Déterminer l'emplacement à afficher
+  const locationParts = [];
+  if (competition.venue) locationParts.push(competition.venue);
+  if (competition.address) locationParts.push(competition.address);
+  if (competition.commune) locationParts.push(competition.commune);
+  if (competition.city) locationParts.push(competition.city);
+  if (competition.country) locationParts.push(competition.country);
+
+  const locationDisplay =
+    competition.location ||
+    locationParts.join(", ") ||
+    "Emplacement non spécifié";
+
   // Formater les dates
   const formatDate = (dateString: string | Date) => {
     const date = dateString instanceof Date ? dateString : new Date(dateString);
@@ -192,6 +205,13 @@ const CompetitionDetailsPage = ({ params }: { params: CompetitionParams }) => {
     return colorMap[status] || "bg-gray-100 text-gray-800";
   };
 
+  // Image par défaut si aucune image n'est fournie
+  const defaultImage = `/placeholder.svg?height=600&width=1200&query=sports%20competition%20${
+    competition.category || ""
+  }`;
+  const bannerImage =
+    competition.bannerUrl || competition.imageUrl || defaultImage;
+
   return (
     <div className="container mx-auto py-10 px-4 sm:px-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
@@ -211,25 +231,79 @@ const CompetitionDetailsPage = ({ params }: { params: CompetitionParams }) => {
           >
             <Edit className="mr-2 h-4 w-4" /> Modifier
           </Button>
-          <Button variant="outline" onClick={handleShare}>
+          <Button variant="outline">
             <Share2 className="mr-2 h-4 w-4" /> Partager
           </Button>
         </div>
       </div>
 
-      {/* Carte promotionnelle */}
-      <div className="mb-8 mx-auto">
-        <CompetitionPromoCard
-          competition={competition}
-          onShare={handleShare}
-          onRegister={handleRegister}
+      {/* Carte principale avec image en arrière-plan */}
+      <div className="relative rounded-xl overflow-hidden shadow-xl mb-8 animate-fade-in">
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: `url(${bannerImage})` }}
         />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/50 to-black/70" />
+
+        <div className="relative z-10 p-8 md:p-12 text-white">
+          <div className="flex flex-col md:flex-row justify-between">
+            <div className="mb-6 md:mb-0">
+              <div className="flex items-center mb-2">
+                <Badge className="mr-2 bg-primary hover:bg-primary/90">
+                  {competition.category || "Sport"}
+                </Badge>
+                <span
+                  className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                    competition.status
+                  )}`}
+                >
+                  {translateStatus(competition.status)}
+                </span>
+              </div>
+
+              <h1 className="text-3xl md:text-4xl font-bold mb-2 text-white drop-shadow-md">
+                {competitionTitle}
+              </h1>
+
+              <div className="flex items-center text-white/80 mb-4">
+                <Calendar className="h-4 w-4 mr-2" />
+                <span>
+                  {formatDate(competition.startDate)} -{" "}
+                  {formatDate(competition.endDate)}
+                </span>
+              </div>
+
+              <div className="flex items-center text-white/80">
+                <MapPin className="h-4 w-4 mr-2 flex-shrink-0" />
+                <span className="line-clamp-1">{locationDisplay}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col items-end">
+              {competition.uniqueCode && (
+                <div className="bg-white/20 backdrop-blur-sm px-4 py-3 rounded-lg mb-4">
+                  <div className="text-sm text-white/80 mb-1">
+                    Code d'invitation
+                  </div>
+                  <div className="text-xl font-mono font-bold tracking-wider">
+                    {competition.uniqueCode}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center text-white/80">
+                <Users className="h-4 w-4 mr-2" />
+                <span>{competition.maxParticipants} participants maximum</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {/* Section Description */}
         <div className="md:col-span-2 space-y-8">
-          <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
+          <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300 animate-fade-in-delay">
             <div className="bg-gradient-to-r from-primary/10 to-transparent p-4 border-b">
               <h2 className="text-xl font-semibold flex items-center">
                 <Info className="h-5 w-5 mr-2 text-primary" />
@@ -250,7 +324,7 @@ const CompetitionDetailsPage = ({ params }: { params: CompetitionParams }) => {
           </Card>
 
           {/* Section Règles ou Informations supplémentaires */}
-          <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
+          <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300 animate-fade-in-delay-2">
             <div className="bg-gradient-to-r from-primary/10 to-transparent p-4 border-b">
               <h2 className="text-xl font-semibold flex items-center">
                 <Trophy className="h-5 w-5 mr-2 text-primary" />
@@ -324,7 +398,7 @@ const CompetitionDetailsPage = ({ params }: { params: CompetitionParams }) => {
         {/* Sidebar */}
         <div className="space-y-6">
           {/* Carte de partage */}
-          <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
+          <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300 animate-slide-in-right">
             <div className="bg-gradient-to-r from-primary/10 to-transparent p-4 border-b">
               <h2 className="text-lg font-semibold flex items-center">
                 <Share2 className="h-5 w-5 mr-2 text-primary" />
@@ -348,7 +422,7 @@ const CompetitionDetailsPage = ({ params }: { params: CompetitionParams }) => {
           </Card>
 
           {/* Carte d'emplacement */}
-          <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
+          <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300 animate-slide-in-right">
             <div className="bg-gradient-to-r from-primary/10 to-transparent p-4 border-b">
               <h2 className="text-lg font-semibold flex items-center">
                 <MapPin className="h-5 w-5 mr-2 text-primary" />
@@ -362,19 +436,7 @@ const CompetitionDetailsPage = ({ params }: { params: CompetitionParams }) => {
               <h3 className="font-medium mb-1">
                 {competition.venue || "Lieu de la compétition"}
               </h3>
-              <p className="text-gray-600 text-sm mb-4">
-                {competition.location ||
-                  [
-                    competition.venue,
-                    competition.address,
-                    competition.commune,
-                    competition.city,
-                    competition.country,
-                  ]
-                    .filter(Boolean)
-                    .join(", ") ||
-                  "Emplacement non spécifié"}
-              </p>
+              <p className="text-gray-600 text-sm mb-4">{locationDisplay}</p>
               <Button variant="outline" className="w-full">
                 <MapPin className="mr-2 h-4 w-4" /> Voir sur la carte
               </Button>
@@ -382,7 +444,7 @@ const CompetitionDetailsPage = ({ params }: { params: CompetitionParams }) => {
           </Card>
 
           {/* Carte de statut */}
-          <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
+          <Card className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300 animate-slide-in-right">
             <div className="bg-gradient-to-r from-primary/10 to-transparent p-4 border-b">
               <h2 className="text-lg font-semibold flex items-center">
                 <Info className="h-5 w-5 mr-2 text-primary" />
