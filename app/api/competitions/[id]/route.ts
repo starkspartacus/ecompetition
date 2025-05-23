@@ -38,13 +38,16 @@ export async function GET(
       _id: competition._id.toString(),
       id: competition._id.toString(),
       organizerId: competition.organizerId.toString(),
-      startDate: competition.startDate.toISOString(),
-      endDate: competition.endDate.toISOString(),
+      startDate: competition.startDate?.toISOString() || null,
+      endDate: competition.endDate?.toISOString() || null,
       registrationStartDate:
         competition.registrationStartDate?.toISOString() || null,
-      registrationEndDate: competition.registrationEndDate.toISOString(),
-      createdAt: competition.createdAt.toISOString(),
-      updatedAt: competition.updatedAt.toISOString(),
+      registrationEndDate:
+        competition.registrationEndDate?.toISOString() || null,
+      createdAt:
+        competition.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt:
+        competition.updatedAt?.toISOString() || new Date().toISOString(),
     };
 
     return NextResponse.json({ competition: serializedCompetition });

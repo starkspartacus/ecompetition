@@ -3,10 +3,11 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import { compare } from "bcrypt";
+import { getUserByEmail, getUserByPhoneNumber } from "@/lib/auth-service";
 import prisma from "@/lib/prisma";
-import { PrismaClient } from "@prisma/client";
+
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma as PrismaClient),
+  adapter: PrismaAdapter(prisma),
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 jours
@@ -39,27 +40,51 @@ export const authOptions: NextAuthOptions = {
             throw new Error("Mot de passe requis");
           }
 
+          console.log("Tentative de connexion avec:", {
+            email: credentials.email,
+            phoneNumber: credentials.phoneNumber,
+          });
+
           // Recherche par email ou par numéro de téléphone
-          const user = credentials.email
-            ? await prisma?.user.findUnique({
-                where: { email: credentials.email },
-              })
-            : await prisma?.user.findFirst({
-                where: { phoneNumber: credentials.phoneNumber },
-              });
+          let user = null;
+
+          if (credentials.email) {
+            user = await getUserByEmail(credentials.email);
+            console.log(
+              "Utilisateur trouvé par email:",
+              user ? user.id : "non trouvé"
+            );
+          } else if (credentials.phoneNumber) {
+            user = await getUserByPhoneNumber(credentials.phoneNumber);
+            console.log(
+              "Utilisateur trouvé par téléphone:",
+              user ? user.id : "non trouvé"
+            );
+          }
 
           if (!user || !user.password) {
+            console.error("Utilisateur non trouvé ou sans mot de passe");
             throw new Error("Utilisateur non trouvé");
           }
 
+          console.log(
+            "Vérification du mot de passe pour l'utilisateur:",
+            user.id
+          );
           const isPasswordValid = await compare(
             credentials.password,
             user.password
           );
 
           if (!isPasswordValid) {
+            console.error("Mot de passe incorrect");
             throw new Error("Mot de passe incorrect");
           }
+
+          // Normaliser les champs country/countryCode
+          const countryCode = user.countryCode || user.country || "FR";
+
+          console.log("Authentification réussie pour:", user.id);
 
           // Retourner uniquement les champs nécessaires
           return {
@@ -67,6 +92,7 @@ export const authOptions: NextAuthOptions = {
             email: user.email,
             name: `${user.firstName} ${user.lastName}`,
             role: user.role,
+            countryCode: countryCode,
           };
         } catch (error) {
           console.error("Auth error:", error);
@@ -80,6 +106,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = user.role;
+        token.countryCode = user.countryCode;
       }
       return token;
     },
@@ -87,6 +114,7 @@ export const authOptions: NextAuthOptions = {
       if (token && session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
+        session.user.countryCode = token.countryCode as string;
       }
       return session;
     },

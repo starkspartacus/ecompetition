@@ -357,6 +357,7 @@ export default function SigninPage() {
               <AnimatePresence mode="wait">
                 <TabsContent value="email" className="mt-0">
                   <motion.div
+                    key="email-form"
                     initial="hidden"
                     animate="visible"
                     variants={tabVariants}
@@ -443,6 +444,7 @@ export default function SigninPage() {
 
                 <TabsContent value="phone" className="mt-0">
                   <motion.div
+                    key="phone-form"
                     initial="hidden"
                     animate="visible"
                     variants={tabVariants}
@@ -554,6 +556,7 @@ export default function SigninPage() {
 
                 <TabsContent value="google" className="mt-0">
                   <motion.div
+                    key="google-form"
                     initial="hidden"
                     animate="visible"
                     variants={tabVariants}
