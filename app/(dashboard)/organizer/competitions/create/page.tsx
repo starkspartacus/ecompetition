@@ -36,6 +36,9 @@ import {
   Facebook,
   Instagram,
   Twitter,
+  DownloadIcon,
+  EyeIcon,
+  LayoutDashboardIcon,
 } from "lucide-react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
@@ -86,6 +89,7 @@ import { CompetitionCategory, TournamentFormat } from "@/lib/prisma-schema";
 import { COUNTRIES } from "@/constants/countries";
 import { CITIES } from "@/constants/villes";
 import { COMMUNES } from "@/constants/communes";
+import { SocialCardGenerator } from "@/components/social-card-generator";
 
 // Définition du schéma de validation
 const formSchema = z
@@ -171,7 +175,6 @@ export default function CreateCompetitionPage() {
   const [competitionData, setCompetitionData] = useState<any>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
-  const socialCardCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Définition du type pour le formulaire
   type FormData = z.infer<typeof formSchema>;
@@ -250,117 +253,6 @@ export default function CreateCompetitionPage() {
     setFormProgress(progress);
   }, [form.watch()]);
 
-  // Générer la carte sociale pour les réseaux sociaux
-  useEffect(() => {
-    if (competitionData && socialCardCanvasRef.current) {
-      const canvas = socialCardCanvasRef.current;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      // Définir la taille du canvas
-      canvas.width = 1200;
-      canvas.height = 630;
-
-      // Dessiner l'arrière-plan
-      const gradient = ctx.createLinearGradient(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
-      gradient.addColorStop(0, "#10b981"); // emerald-500
-      gradient.addColorStop(1, "#3b82f6"); // blue-500
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Ajouter un overlay semi-transparent
-      ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Dessiner l'image de la compétition si disponible
-      if (imagePreview) {
-        const img = new globalThis.Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => {
-          // Dessiner l'image avec un effet d'opacité
-          if (ctx) {
-            ctx.globalAlpha = 0.2;
-            ctx.drawImage(img, canvas.width / 2 - 150, 50, 300, 300);
-            ctx.globalAlpha = 1.0;
-
-            // Continuer avec le reste du dessin
-            drawCardContent();
-          }
-        };
-        img.src = imagePreview;
-      } else {
-        drawCardContent();
-      }
-
-      function drawCardContent() {
-        if (!ctx) return;
-
-        // Ajouter le titre
-        ctx.font = "bold 60px Arial";
-        ctx.fillStyle = "white";
-        ctx.textAlign = "center";
-        ctx.fillText(competitionData.title, canvas.width / 2, 400);
-
-        // Ajouter la catégorie
-        ctx.font = "bold 40px Arial";
-        ctx.fillStyle = "#f0f0f0";
-        ctx.fillText(
-          COMPETITION_CATEGORIES.find(
-            (c) => c.value === competitionData.category
-          )?.label || competitionData.category,
-          canvas.width / 2,
-          470
-        );
-
-        // Ajouter les dates
-        ctx.font = "30px Arial";
-        ctx.fillStyle = "#f0f0f0";
-        const startDate = competitionData.startDate
-          ? format(new Date(competitionData.startDate), "dd MMMM yyyy", {
-              locale: fr,
-            })
-          : "";
-        const endDate = competitionData.endDate
-          ? format(new Date(competitionData.endDate), "dd MMMM yyyy", {
-              locale: fr,
-            })
-          : "";
-        ctx.fillText(`Du ${startDate} au ${endDate}`, canvas.width / 2, 520);
-
-        // Ajouter le lieu
-        ctx.font = "30px Arial";
-        ctx.fillStyle = "#f0f0f0";
-        const cityName =
-          availableCities.find((c) => c.value === competitionData.city)
-            ?.label || competitionData.city;
-        const countryName =
-          COUNTRIES.find((c) => c.code === competitionData.country)?.name ||
-          competitionData.country;
-        ctx.fillText(
-          `${competitionData.venue}, ${cityName}, ${countryName}`,
-          canvas.width / 2,
-          570
-        );
-
-        // Ajouter le code unique
-        if (uniqueCode) {
-          ctx.font = "bold 36px Arial";
-          ctx.fillStyle = "#ffffff";
-          ctx.fillText(`Code: ${uniqueCode}`, canvas.width / 2, 630 - 40);
-        }
-
-        // Convertir le canvas en URL de données
-        const dataUrl = canvas.toDataURL("image/png");
-        setSocialCardPreview(dataUrl);
-      }
-    }
-  }, [competitionData, imagePreview, uniqueCode, availableCities]);
-
   // Gérer le changement d'image
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -404,12 +296,14 @@ export default function CreateCompetitionPage() {
     if (!competitionData) return;
 
     const title = encodeURIComponent(
-      `Rejoignez la compétition: ${competitionData.title}`
+      `Rejoignez la compétition: ${
+        competitionData.title || competitionData.name
+      }`
     );
     const description = encodeURIComponent(
       `Je vous invite à participer à cette compétition de ${
         COMPETITION_CATEGORIES.find((c) => c.value === competitionData.category)
-          ?.label
+          ?.label || "sport"
       }. Utilisez le code: ${uniqueCode}`
     );
     const url = encodeURIComponent(
@@ -486,6 +380,10 @@ export default function CreateCompetitionPage() {
       setCompetitionData({
         ...data,
         id: responseData.competition.id,
+        title: data.name,
+        imageUrl: responseData.competition.imageUrl || imagePreview,
+        bannerUrl: responseData.competition.bannerUrl || bannerPreview,
+        uniqueCode: responseData.competition.uniqueCode,
       });
 
       setUniqueCode(responseData.competition.uniqueCode);
@@ -586,6 +484,10 @@ export default function CreateCompetitionPage() {
     router.push("/organizer/dashboard");
   };
 
+  const handleSocialCardGenerated = (dataUrl: string) => {
+    setSocialCardPreview(dataUrl);
+  };
+
   const fadeIn = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
@@ -630,31 +532,23 @@ export default function CreateCompetitionPage() {
                     </p>
                   </div>
 
-                  <div className="bg-gray-50 p-4 rounded-lg border">
-                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                  <div className="bg-gray-50 p-6 rounded-lg border shadow-md">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                       <Share2 className="h-5 w-5 text-blue-600" />
                       Carte pour les réseaux sociaux
                     </h3>
-                    <div className="relative aspect-[1200/630] w-full overflow-hidden rounded-lg shadow-md mb-4">
-                      {socialCardPreview ? (
-                        <Image
-                          src={
-                            socialCardPreview ||
-                            "/placeholder.svg?height=200&width=200&query=placeholder"
-                          }
-                          alt="Carte sociale pour les réseaux sociaux"
-                          fill
-                          className="object-cover"
-                        />
-                      ) : (
-                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                          <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
-                        </div>
-                      )}
-                    </div>
-                    <canvas ref={socialCardCanvasRef} className="hidden" />
 
-                    <div className="flex flex-wrap gap-2 justify-center">
+                    {/* Utilisation du nouveau composant SocialCardGenerator */}
+                    <SocialCardGenerator
+                      competition={competitionData}
+                      availableCities={availableCities}
+                      countries={COUNTRIES}
+                      categories={COMPETITION_CATEGORIES}
+                      onCardGenerated={handleSocialCardGenerated}
+                      className="mb-6 shadow-xl rounded-xl overflow-hidden"
+                    />
+
+                    <div className="flex flex-wrap gap-3 justify-center mt-6">
                       <Button
                         variant="outline"
                         className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100"
@@ -684,7 +578,7 @@ export default function CreateCompetitionPage() {
                         className="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
                         onClick={downloadSocialCard}
                       >
-                        <Download className="mr-2 h-4 w-4" />
+                        <DownloadIcon className="mr-2 h-4 w-4" />
                         Télécharger l'image
                       </Button>
                     </div>
@@ -711,11 +605,11 @@ export default function CreateCompetitionPage() {
                       onClick={handleViewDetails}
                       className="bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 text-white"
                     >
-                      <Eye className="mr-2 h-4 w-4" />
+                      <EyeIcon className="mr-2 h-4 w-4" />
                       Voir les détails de la compétition
                     </Button>
                     <Button variant="outline" onClick={handleDashboard}>
-                      <LayoutDashboard className="mr-2 h-4 w-4" />
+                      <LayoutDashboardIcon className="mr-2 h-4 w-4" />
                       Retour au tableau de bord
                     </Button>
                   </div>
@@ -1686,7 +1580,8 @@ export default function CreateCompetitionPage() {
                                       <Image
                                         src={
                                           imagePreview ||
-                                          "/placeholder.svg?height=200&width=200&query=placeholder"
+                                          "/placeholder.svg?height=200&width=200&query=placeholder" ||
+                                          "/placeholder.svg"
                                         }
                                         alt="Aperçu de l'image"
                                         fill
@@ -1745,7 +1640,8 @@ export default function CreateCompetitionPage() {
                                       <Image
                                         src={
                                           bannerPreview ||
-                                          "/placeholder.svg?height=200&width=200&query=placeholder"
+                                          "/placeholder.svg?height=200&width=200&query=placeholder" ||
+                                          "/placeholder.svg"
                                         }
                                         alt="Aperçu de la bannière"
                                         fill
@@ -1805,7 +1701,8 @@ export default function CreateCompetitionPage() {
                                       <Image
                                         src={
                                           imagePreview ||
-                                          "/placeholder.svg?height=200&width=200&query=placeholder"
+                                          "/placeholder.svg?height=200&width=200&query=placeholder" ||
+                                          "/placeholder.svg"
                                         }
                                         alt="Logo"
                                         fill
@@ -2073,34 +1970,23 @@ export default function CreateCompetitionPage() {
                               </p>
                             </div>
 
-                            <div className="bg-gray-50 p-4 rounded-lg border">
-                              <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                            <div className="bg-gray-50 p-6 rounded-lg border shadow-md">
+                              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                                 <Share2 className="h-5 w-5 text-blue-600" />
                                 Carte pour les réseaux sociaux
                               </h3>
-                              <div className="relative aspect-[1200/630] w-full overflow-hidden rounded-lg shadow-md mb-4">
-                                {socialCardPreview ? (
-                                  <Image
-                                    src={
-                                      socialCardPreview ||
-                                      "/placeholder.svg?height=200&width=200&query=placeholder"
-                                    }
-                                    alt="Carte sociale pour les réseaux sociaux"
-                                    fill
-                                    className="object-cover"
-                                  />
-                                ) : (
-                                  <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                                    <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
-                                  </div>
-                                )}
-                              </div>
-                              <canvas
-                                ref={socialCardCanvasRef}
-                                className="hidden"
+
+                              {/* Utilisation du nouveau composant SocialCardGenerator */}
+                              <SocialCardGenerator
+                                competition={competitionData}
+                                availableCities={availableCities}
+                                countries={COUNTRIES}
+                                categories={COMPETITION_CATEGORIES}
+                                onCardGenerated={handleSocialCardGenerated}
+                                className="mb-6 shadow-xl rounded-xl overflow-hidden"
                               />
 
-                              <div className="flex flex-wrap gap-2 justify-center">
+                              <div className="flex flex-wrap gap-3 justify-center mt-6">
                                 <Button
                                   variant="outline"
                                   className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100"
@@ -2130,7 +2016,7 @@ export default function CreateCompetitionPage() {
                                   className="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
                                   onClick={downloadSocialCard}
                                 >
-                                  <Download className="mr-2 h-4 w-4" />
+                                  <DownloadIcon className="mr-2 h-4 w-4" />
                                   Télécharger l'image
                                 </Button>
                               </div>
@@ -2157,14 +2043,14 @@ export default function CreateCompetitionPage() {
                                 onClick={handleViewDetails}
                                 className="bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 text-white"
                               >
-                                <Eye className="mr-2 h-4 w-4" />
+                                <EyeIcon className="mr-2 h-4 w-4" />
                                 Voir les détails de la compétition
                               </Button>
                               <Button
                                 variant="outline"
                                 onClick={handleDashboard}
                               >
-                                <LayoutDashboard className="mr-2 h-4 w-4" />
+                                <LayoutDashboardIcon className="mr-2 h-4 w-4" />
                                 Retour au tableau de bord
                               </Button>
                             </div>
@@ -2306,16 +2192,3 @@ export default function CreateCompetitionPage() {
     </div>
   );
 }
-
-// Composants manquants pour la prévisualisation
-const Download: React.FC<{ className?: string }> = ({ className }) => {
-  return <Upload className={className} />;
-};
-
-const Eye: React.FC<{ className?: string }> = ({ className }) => {
-  return <Info className={className} />;
-};
-
-const LayoutDashboard: React.FC<{ className?: string }> = ({ className }) => {
-  return <Layers className={className} />;
-};

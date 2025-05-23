@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { CompetitionStatus } from "@/lib/prisma-schema";
-import { insertOne, find } from "@/lib/mongodb-client";
+import { insertOne, find, findOne } from "@/lib/mongodb-client";
 
 // Interface pour les paramètres de création de compétition
 interface CreateCompetitionParams {
@@ -26,10 +26,44 @@ interface CreateCompetitionParams {
   rules?: string[];
 }
 
+// Interface pour la compétition
+export interface Competition {
+  id: string;
+  _id?: any;
+  title: string;
+  description: string;
+  category: string;
+  country: string;
+  city: string;
+  commune?: string | null;
+  address: string;
+  venue: string;
+  imageUrl?: string | null;
+  bannerUrl?: string | null;
+  registrationStartDate: Date;
+  registrationDeadline: Date;
+  startDate: Date;
+  endDate: Date;
+  maxParticipants: number;
+  status: CompetitionStatus;
+  tournamentFormat?: string | null;
+  isPublic: boolean;
+  rules: string[];
+  uniqueCode: string;
+  organizerId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  participants: number;
+  teams: number;
+  matches: number;
+}
+
 /**
  * Crée une nouvelle compétition
  */
-export async function createCompetition(params: CreateCompetitionParams) {
+export async function createCompetition(
+  params: CreateCompetitionParams
+): Promise<Competition> {
   try {
     console.log("Création d'une compétition avec les paramètres:", {
       title: params.title,
@@ -122,7 +156,7 @@ export async function createCompetition(params: CreateCompetitionParams) {
       uniqueCode: competition.uniqueCode,
     });
 
-    return competition;
+    return competition as Competition;
   } catch (error) {
     console.error("❌ Erreur lors de la création de la compétition:", error);
     throw error;
@@ -130,9 +164,62 @@ export async function createCompetition(params: CreateCompetitionParams) {
 }
 
 /**
+ * Récupère une compétition par ID ou code unique
+ */
+export async function getCompetitionByIdOrCode(
+  idOrCode: string
+): Promise<Competition | null> {
+  try {
+    console.log(`Recherche de la compétition avec ID/code: ${idOrCode}`);
+
+    // Essayer de trouver par ID
+    let competition = null;
+    try {
+      competition = await findOne("Competition", { _id: idOrCode });
+    } catch (error) {
+      // Ignorer l'erreur si l'ID n'est pas valide
+    }
+
+    // Si non trouvé, essayer par code unique
+    if (!competition) {
+      competition = await findOne("Competition", { uniqueCode: idOrCode });
+    }
+
+    // Si toujours non trouvé, essayer dans la collection "competitions" (minuscule)
+    if (!competition) {
+      try {
+        competition = await findOne("competitions", { _id: idOrCode });
+      } catch (error) {
+        // Ignorer l'erreur si l'ID n'est pas valide
+      }
+
+      if (!competition) {
+        competition = await findOne("competitions", { uniqueCode: idOrCode });
+      }
+    }
+
+    if (!competition) {
+      console.log(`❌ Compétition non trouvée avec ID/code: ${idOrCode}`);
+      return null;
+    }
+
+    console.log(`✅ Compétition trouvée: ${competition.title || "Sans titre"}`);
+    return competition as Competition;
+  } catch (error) {
+    console.error(
+      "❌ Erreur lors de la récupération de la compétition:",
+      error
+    );
+    throw error;
+  }
+}
+
+/**
  * Récupère les compétitions d'un organisateur
  */
-export async function getCompetitionsByOrganizerId(organizerId: string) {
+export async function getCompetitionsByOrganizerId(
+  organizerId: string
+): Promise<Competition[]> {
   try {
     console.log(
       "Récupération des compétitions pour l'organisateur:",
@@ -142,9 +229,19 @@ export async function getCompetitionsByOrganizerId(organizerId: string) {
     // Récupérer les compétitions directement avec MongoDB
     const competitions = await find("Competition", { organizerId });
 
-    console.log(`✅ ${competitions.length} compétitions trouvées`);
+    // Si aucune compétition n'est trouvée, essayer dans la collection "competitions" (minuscule)
+    if (competitions.length === 0) {
+      const altCompetitions = await find("competitions", { organizerId });
+      if (altCompetitions.length > 0) {
+        console.log(
+          `✅ ${altCompetitions.length} compétitions trouvées dans la collection "competitions"`
+        );
+        return altCompetitions as Competition[];
+      }
+    }
 
-    return competitions;
+    console.log(`✅ ${competitions.length} compétitions trouvées`);
+    return competitions as Competition[];
   } catch (error) {
     console.error("❌ Erreur lors de la récupération des compétitions:", error);
     throw error;
