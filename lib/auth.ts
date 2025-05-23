@@ -1,13 +1,13 @@
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import { compare } from "bcrypt";
 import { getUserByEmail, getUserByPhoneNumber } from "@/lib/auth-service";
-import prisma from "@/lib/prisma";
+import { CustomPrismaAdapter } from "@/lib/custom-prisma-adapter";
+import { UserRole } from "@/lib/prisma-schema";
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+  adapter: CustomPrismaAdapter(),
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 jours
@@ -20,8 +20,17 @@ export const authOptions: NextAuthOptions = {
   },
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      clientId: process.env.GOOGLE_CLIENT_ID ?? "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+      profile(profile) {
+        return {
+          id: profile.sub,
+          name: profile.name,
+          email: profile.email,
+          image: profile.picture,
+          role: UserRole.PARTICIPANT,
+        };
+      },
     }),
     CredentialsProvider({
       name: "credentials",
@@ -45,7 +54,6 @@ export const authOptions: NextAuthOptions = {
             phoneNumber: credentials.phoneNumber,
           });
 
-          // Recherche par email ou par numéro de téléphone
           let user = null;
 
           if (credentials.email) {
@@ -81,18 +89,13 @@ export const authOptions: NextAuthOptions = {
             throw new Error("Mot de passe incorrect");
           }
 
-          // Normaliser les champs country/countryCode
-          const countryCode = user.countryCode || user.country || "FR";
-
           console.log("Authentification réussie pour:", user.id);
 
-          // Retourner uniquement les champs nécessaires
           return {
             id: user.id,
             email: user.email,
             name: `${user.firstName} ${user.lastName}`,
-            role: user.role,
-            countryCode: countryCode,
+            role: user.role || "USER",
           };
         } catch (error) {
           console.error("Auth error:", error);
@@ -105,16 +108,14 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
-        token.role = user.role;
-        token.countryCode = user.countryCode;
+        token.role = user.role || "USER";
       }
       return token;
     },
     async session({ session, token }) {
       if (token && session.user) {
-        session.user.id = token.id as string;
-        session.user.role = token.role as string;
-        session.user.countryCode = token.countryCode as string;
+        session.user.id = token.id;
+        session.user.role = token.role || "USER";
       }
       return session;
     },

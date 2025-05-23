@@ -13,15 +13,15 @@ import {
   type Competition,
 } from "./prisma-schema";
 import { generateUniqueCode } from "./utils";
-
-const {
-  createDocument,
-  findDocumentById,
-  findDocuments,
-  updateDocument,
-  deleteDocument,
-  countDocuments,
-} = require("./mongodb-client");
+import {
+  connectDB,
+  insertOne,
+  findOne,
+  find,
+  updateOne,
+  deleteOne,
+  count,
+} from "./mongodb-client";
 
 // Collection pour les compétitions
 const COLLECTION_NAME = "Competition";
@@ -33,6 +33,9 @@ export async function createCompetition(
   competitionData: any
 ): Promise<Competition> {
   try {
+    // S'assurer que la connexion à la base de données est établie
+    await connectDB();
+
     // Générer un code unique
     const uniqueCode = generateUniqueCode();
 
@@ -53,7 +56,7 @@ export async function createCompetition(
     const validatedCompetition = validateCompetition(competition);
 
     // Créer la compétition dans la base de données
-    const createdCompetition = await createDocument(
+    const createdCompetition = await insertOne(
       COLLECTION_NAME,
       validatedCompetition
     );
@@ -73,7 +76,8 @@ export async function getCompetitionById(
   id: string
 ): Promise<Competition | null> {
   try {
-    const competition = await findDocumentById(COLLECTION_NAME, id);
+    await connectDB();
+    const competition = await findOne(COLLECTION_NAME, { _id: id });
     return competition as Competition | null;
   } catch (error) {
     console.error(
@@ -91,7 +95,8 @@ export async function getCompetitionByUniqueCode(
   uniqueCode: string
 ): Promise<Competition | null> {
   try {
-    const competitions = await findDocuments(COLLECTION_NAME, { uniqueCode });
+    await connectDB();
+    const competitions = await find(COLLECTION_NAME, { uniqueCode });
     return competitions.length > 0 ? (competitions[0] as Competition) : null;
   } catch (error) {
     console.error(
@@ -109,11 +114,57 @@ export async function getCompetitionsByOrganizerId(
   organizerId: string
 ): Promise<Competition[]> {
   try {
-    const competitions = await findDocuments(
+    await connectDB();
+    console.log(
+      `🔍 Recherche des compétitions pour l'organisateur: ${organizerId}`
+    );
+
+    // Vérifier si l'ID est valide
+    if (!organizerId || typeof organizerId !== "string") {
+      console.error(`❌ ID d'organisateur invalide: ${organizerId}`);
+      return [];
+    }
+
+    // Utiliser la fonction find du client MongoDB avec l'ID sous forme de chaîne
+    // Le client MongoDB se chargera de la conversion en ObjectId
+    const competitions = await find(
       COLLECTION_NAME,
       { organizerId },
       { sort: { createdAt: -1 } }
     );
+
+    console.log(
+      `✅ ${competitions.length} compétitions trouvées pour l'organisateur ${organizerId}`
+    );
+
+    if (competitions.length === 0) {
+      // Essayer une recherche alternative si aucun résultat n'est trouvé
+      console.log(
+        `🔍 Tentative de recherche alternative pour l'organisateur: ${organizerId}`
+      );
+      const altCompetitions = await find(
+        COLLECTION_NAME,
+        {},
+        { sort: { createdAt: -1 } }
+      );
+
+      // Filtrer manuellement les compétitions
+      const filteredCompetitions = altCompetitions.filter(
+        (comp: Competition) => {
+          const compOrgId = comp.organizerId?.toString() || "";
+          return compOrgId === organizerId;
+        }
+      );
+
+      console.log(
+        `✅ Recherche alternative: ${filteredCompetitions.length} compétitions trouvées`
+      );
+
+      if (filteredCompetitions.length > 0) {
+        return filteredCompetitions as Competition[];
+      }
+    }
+
     return competitions as Competition[];
   } catch (error) {
     console.error(
@@ -132,7 +183,8 @@ export async function getAllCompetitions(
   options: any = {}
 ): Promise<Competition[]> {
   try {
-    const competitions = await findDocuments(COLLECTION_NAME, filters, options);
+    await connectDB();
+    const competitions = await find(COLLECTION_NAME, filters, options);
     return competitions as Competition[];
   } catch (error) {
     console.error("❌ Erreur lors de la récupération des compétitions:", error);
@@ -148,6 +200,8 @@ export async function updateCompetition(
   competitionData: any
 ): Promise<Competition> {
   try {
+    await connectDB();
+
     // Récupérer la compétition existante
     const existingCompetition = await getCompetitionById(id);
 
@@ -166,9 +220,9 @@ export async function updateCompetition(
     const validatedCompetition = validateCompetition(updatedCompetition);
 
     // Mettre à jour la compétition dans la base de données
-    const result = await updateDocument(
+    const result = await updateOne(
       COLLECTION_NAME,
-      id,
+      { _id: id },
       validatedCompetition
     );
 
@@ -181,11 +235,54 @@ export async function updateCompetition(
 }
 
 /**
+ * Met à jour le statut d'une compétition
+ */
+export async function updateCompetitionStatus(
+  id: string,
+  status: CompetitionStatus
+): Promise<Competition> {
+  try {
+    const updatedCompetition = await updateCompetition(id, { status });
+    console.log(`✅ Statut de la compétition ${id} mis à jour: ${status}`);
+    return updatedCompetition;
+  } catch (error) {
+    console.error("❌ Erreur lors de la mise à jour du statut:", error);
+    throw error;
+  }
+}
+
+/**
+ * Récupère les compétitions qui nécessitent une mise à jour de statut
+ */
+export async function getCompetitionsForStatusUpdate(): Promise<Competition[]> {
+  try {
+    await connectDB();
+    const now = new Date();
+
+    // Récupérer toutes les compétitions qui ne sont pas terminées ou annulées
+    const competitions = await find(COLLECTION_NAME, {
+      status: {
+        $nin: [CompetitionStatus.COMPLETED, CompetitionStatus.CANCELLED],
+      },
+    });
+
+    return competitions as Competition[];
+  } catch (error) {
+    console.error(
+      "❌ Erreur lors de la récupération des compétitions pour mise à jour:",
+      error
+    );
+    throw error;
+  }
+}
+
+/**
  * Supprime une compétition
  */
 export async function deleteCompetition(id: string): Promise<{ id: string }> {
   try {
-    const result = await deleteDocument(COLLECTION_NAME, id);
+    await connectDB();
+    const result = await deleteOne(COLLECTION_NAME, { _id: id });
     console.log(`✅ Compétition supprimée avec succès: ${id}`);
     return result;
   } catch (error) {
@@ -199,7 +296,8 @@ export async function deleteCompetition(id: string): Promise<{ id: string }> {
  */
 export async function countCompetitions(filters: any = {}): Promise<number> {
   try {
-    return await countDocuments(COLLECTION_NAME, filters);
+    await connectDB();
+    return await count(COLLECTION_NAME, filters);
   } catch (error) {
     console.error("❌ Erreur lors du comptage des compétitions:", error);
     throw error;

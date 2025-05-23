@@ -1,13 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import {
-  FormControl,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from "@/components/ui/form";
+import React, { useState } from "react";
 import {
   Select,
   SelectContent,
@@ -15,148 +8,106 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { VILLES } from "@/constants/villes";
-import { COMMUNES } from "@/constants/communes";
-import { MapPin } from "lucide-react";
 
 interface LocationSelectorProps {
-  countryCode: string;
-  cityValue: string;
-  communeValue?: string;
-  onCityChange: (value: string) => void;
-  onCommuneChange: (value: string) => void;
-  cityError?: string;
-  communeError?: string;
-  cityDescription?: string;
-  communeDescription?: string;
+  onLocationChange: (
+    country: string | null,
+    city: string | null,
+    commune: string | null
+  ) => void;
 }
 
-export function LocationSelector({
-  countryCode,
-  cityValue,
-  communeValue = "",
-  onCityChange,
-  onCommuneChange,
-  cityError,
-  communeError,
-  cityDescription,
-  communeDescription,
-}: LocationSelectorProps) {
-  const [availableCities, setAvailableCities] = useState<
-    { value: string; label: string }[]
-  >([]);
-  const [availableCommunes, setAvailableCommunes] = useState<
-    { value: string; label: string }[]
-  >([]);
-  const [hasCommunesForCity, setHasCommunesForCity] = useState(false);
+const LocationSelector: React.FC<LocationSelectorProps> = ({
+  onLocationChange,
+}) => {
+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
+  const [selectedCity, setSelectedCity] = useState<string | null>(null);
+  const [selectedCommune, setSelectedCommune] = useState<string | null>(null);
 
-  // Mettre à jour les villes disponibles lorsque le pays change
-  useEffect(() => {
-    if (countryCode) {
-      const countryKey = countryCode.toLowerCase() as keyof typeof VILLES;
-      const cities = VILLES[countryKey] || [];
-      setAvailableCities(cities);
-    } else {
-      setAvailableCities([]);
-    }
-  }, [countryCode]);
+  const countries = ["France", "Espagne", "Italie"];
+  const cities =
+    selectedCountry === "France"
+      ? ["Paris", "Marseille", "Lyon"]
+      : selectedCountry === "Espagne"
+      ? ["Madrid", "Barcelone", "Valence"]
+      : selectedCountry === "Italie"
+      ? ["Rome", "Milan", "Naples"]
+      : [];
+  const communes =
+    selectedCity === "Paris"
+      ? ["1er arrondissement", "2eme arrondissement", "3eme arrondissement"]
+      : selectedCity === "Marseille"
+      ? ["1er arrondissement", "2eme arrondissement", "3eme arrondissement"]
+      : selectedCity === "Lyon"
+      ? ["1er arrondissement", "2eme arrondissement", "3eme arrondissement"]
+      : selectedCity === "Madrid"
+      ? ["Centro", "Retiro", "Salamanca"]
+      : selectedCity === "Barcelone"
+      ? ["Ciutat Vella", "Eixample", "Sants-Montjuïc"]
+      : selectedCity === "Valence"
+      ? ["Ciutat Vella", "Eixample", "Extramurs"]
+      : selectedCity === "Rome"
+      ? ["Municipio I", "Municipio II", "Municipio III"]
+      : selectedCity === "Milan"
+      ? ["Municipio 1", "Municipio 2", "Municipio 3"]
+      : selectedCity === "Naples"
+      ? ["Municipalità 1", "Municipalità 2", "Municipalità 3"]
+      : [];
 
-  // Mettre à jour les communes disponibles lorsque la ville change
-  useEffect(() => {
-    if (cityValue) {
-      const cityKey = cityValue as keyof typeof COMMUNES;
-      const communes = COMMUNES[cityKey] || [];
-      setAvailableCommunes(communes);
-      setHasCommunesForCity(communes.length > 0);
-
-      // Si la ville change et qu'il n'y a pas de communes disponibles, réinitialiser la valeur de la commune
-      if (communes.length === 0 && communeValue) {
-        onCommuneChange("");
-      }
-    } else {
-      setAvailableCommunes([]);
-      setHasCommunesForCity(false);
-      if (communeValue) {
-        onCommuneChange("");
-      }
-    }
-  }, [cityValue, communeValue, onCommuneChange]);
-
-  // Gérer le changement de ville
-  const handleCityChange = (value: string) => {
-    onCityChange(value);
-    // Réinitialiser la commune lorsque la ville change
-    onCommuneChange("");
-  };
+  React.useEffect(() => {
+    onLocationChange(selectedCountry, selectedCity, selectedCommune);
+  }, [selectedCountry, selectedCity, selectedCommune, onLocationChange]);
 
   return (
-    <div className="space-y-4">
-      <FormItem>
-        <FormLabel className="flex items-center gap-1.5">
-          <MapPin className="h-4 w-4 text-primary" />
-          Ville
-        </FormLabel>
-        <Select
-          value={cityValue}
-          onValueChange={handleCityChange}
-          disabled={!countryCode}
-        >
-          <FormControl>
-            <SelectTrigger className="bg-white/80 backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-all">
-              <SelectValue placeholder="Sélectionner une ville" />
-            </SelectTrigger>
-          </FormControl>
-          <SelectContent>
-            {availableCities.length > 0 ? (
-              availableCities.map((city) => (
-                <SelectItem key={city.value} value={city.value}>
-                  {city.label}
-                </SelectItem>
-              ))
-            ) : (
-              <SelectItem value="no-cities" disabled>
-                Aucune ville disponible
-              </SelectItem>
-            )}
-          </SelectContent>
-        </Select>
-        {cityDescription && (
-          <FormDescription>{cityDescription}</FormDescription>
-        )}
-        {cityError && <FormMessage>{cityError}</FormMessage>}
-      </FormItem>
+    <div className="flex flex-col gap-4">
+      <Select value={selectedCountry || ""} onValueChange={setSelectedCountry}>
+        <SelectTrigger>
+          <SelectValue placeholder="Sélectionnez un pays" />
+        </SelectTrigger>
+        <SelectContent>
+          {countries.map((country) => (
+            <SelectItem key={country} value={country}>
+              {country}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
-      {/* Afficher le sélecteur de commune uniquement s'il y a des communes disponibles pour la ville sélectionnée */}
-      {hasCommunesForCity && (
-        <FormItem>
-          <FormLabel className="flex items-center gap-1.5">
-            <MapPin className="h-4 w-4 text-primary" />
-            Commune
-          </FormLabel>
-          <Select
-            value={communeValue}
-            onValueChange={onCommuneChange}
-            disabled={!cityValue || availableCommunes.length === 0}
-          >
-            <FormControl>
-              <SelectTrigger className="bg-white/80 backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-all">
-                <SelectValue placeholder="Sélectionner une commune" />
-              </SelectTrigger>
-            </FormControl>
-            <SelectContent>
-              {availableCommunes.map((commune) => (
-                <SelectItem key={commune.value} value={commune.value}>
-                  {commune.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {communeDescription && (
-            <FormDescription>{communeDescription}</FormDescription>
-          )}
-          {communeError && <FormMessage>{communeError}</FormMessage>}
-        </FormItem>
-      )}
+      <Select
+        value={selectedCity || ""}
+        onValueChange={setSelectedCity}
+        disabled={!selectedCountry}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder="Sélectionnez une ville" />
+        </SelectTrigger>
+        <SelectContent>
+          {cities.map((city) => (
+            <SelectItem key={city} value={city}>
+              {city}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={selectedCommune || ""}
+        onValueChange={setSelectedCommune}
+        disabled={!selectedCity}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder="Sélectionnez une commune" />
+        </SelectTrigger>
+        <SelectContent>
+          {communes.map((commune) => (
+            <SelectItem key={commune} value={commune}>
+              {commune}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
-}
+};
+
+export default LocationSelector;

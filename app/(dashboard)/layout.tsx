@@ -1,10 +1,11 @@
 "use client";
 
 import type React from "react";
-
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { RealTimeNotifications } from "@/components/real-time-notifications";
+import { useWebSocket } from "@/hooks/use-websocket";
 import { DashboardNav } from "@/components/dashboard-nav";
 
 export default function DashboardLayout({
@@ -15,6 +16,7 @@ export default function DashboardLayout({
   const { data: session, status } = useSession();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
+  const { isConnected } = useWebSocket({ debug: false }); // Désactiver le debug par défaut
 
   useEffect(() => {
     // Ne rien faire si le statut est toujours en chargement
@@ -23,23 +25,52 @@ export default function DashboardLayout({
     // Rediriger si pas de session
     if (status === "unauthenticated") {
       router.push("/signin");
-    } else {
+      return;
+    }
+
+    // Marquer comme chargé si on a une session
+    if (status === "authenticated") {
       setIsLoading(false);
     }
-  }, [status, router]); // Dépendances minimales
+  }, [status, router]);
 
-  if (isLoading && status === "loading") {
+  // Écran de chargement
+  if (status === "loading" || isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <p className="text-lg font-medium text-gray-600 dark:text-gray-300">
+            Chargement de votre espace...
+          </p>
+        </div>
       </div>
     );
   }
 
+  // Redirection si pas de session (ne devrait pas arriver grâce au useEffect)
+  if (!session?.user) {
+    return null;
+  }
+
   return (
-    <div className="flex min-h-screen flex-col">
-      {session?.user && <DashboardNav user={session.user} />}
-      <div className="flex-1 p-8">{children}</div>
+    <div className="flex min-h-screen flex-col bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800">
+      {/* Header avec DashboardNav */}
+      <DashboardNav
+        user={{
+          ...session.user,
+          // Assurer que role existe pour TypeScript
+          role: session.user.role || "PARTICIPANT",
+        }}
+      />
+
+      {/* Main content */}
+      <main className="flex-1 p-4 transition-all duration-300 ease-in-out md:p-6 lg:p-8 pb-16 md:pb-8">
+        <div className="mx-auto max-w-7xl">{children}</div>
+      </main>
+
+      {/* Notifications en temps réel */}
+      <RealTimeNotifications />
     </div>
   );
 }

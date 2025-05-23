@@ -1,14 +1,12 @@
 "use client";
 
-import type React from "react";
 import { useState, useEffect } from "react";
-import { CheckCircle, Copy, Eye } from "lucide-react";
 import { motion } from "framer-motion";
+import { CheckCircle, Copy, Eye, Home, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { cn } from "@/lib/utils";
+import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "@/components/ui/use-toast";
-import ConfettiExplosion from "./confetti-explosion";
+import ConfettiExplosion from "@/components/confetti-explosion";
 
 interface AnimatedSuccessProps {
   uniqueCode: string;
@@ -16,147 +14,128 @@ interface AnimatedSuccessProps {
   onDashboard: () => void;
 }
 
-export const AnimatedSuccess: React.FC<AnimatedSuccessProps> = ({
+export function AnimatedSuccess({
   uniqueCode,
   onViewDetails,
   onDashboard,
-}) => {
-  const [showUniqueCode, setShowUniqueCode] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(true);
-  const [isVisible, setIsVisible] = useState(false);
+}: AnimatedSuccessProps) {
+  const [showConfetti, setShowConfetti] = useState(false);
 
   useEffect(() => {
-    // Déclencher l'animation après le montage du composant
-    const timer = setTimeout(() => setIsVisible(true), 100);
+    // Déclencher l'animation de confetti après un court délai
+    const timer = setTimeout(() => {
+      setShowConfetti(true);
+    }, 500);
+
     return () => clearTimeout(timer);
   }, []);
 
-  const copyUniqueCode = () => {
-    if (uniqueCode) {
-      navigator.clipboard.writeText(uniqueCode);
-      toast({
-        title: "Code copié!",
-        description: "Le code unique a été copié dans le presse-papier",
-      });
-    }
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(uniqueCode);
+    toast({
+      title: "Code copié!",
+      description: "Le code unique a été copié dans le presse-papier.",
+    });
   };
 
   return (
-    <div className="relative">
-      {showConfetti && (
-        <ConfettiExplosion onComplete={() => setShowConfetti(false)} />
-      )}
+    <div className="relative flex flex-col items-center justify-center py-10 px-4">
+      {showConfetti && <ConfettiExplosion />}
 
       <motion.div
-        initial={{ opacity: 0, y: 50 }}
-        animate={{ opacity: isVisible ? 1 : 0, y: isVisible ? 0 : 50 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className="space-y-6"
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="mb-6"
       >
-        <motion.div
-          initial={{ scale: 0.8 }}
-          animate={{ scale: 1 }}
-          transition={{
-            delay: 0.3,
-            type: "spring",
-            stiffness: 200,
-            damping: 10,
-          }}
-        >
-          <Alert className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 shadow-lg">
-            <CheckCircle className="h-5 w-5 text-green-600" />
-            <AlertTitle className="text-green-800 text-lg font-bold">
-              Félicitations!
-            </AlertTitle>
-            <AlertDescription className="text-green-700">
-              Votre compétition a été créée avec succès. Vous pouvez maintenant
-              partager le code unique avec les participants.
-            </AlertDescription>
-          </Alert>
-        </motion.div>
+        <div className="rounded-full bg-green-100 p-3 w-24 h-24 flex items-center justify-center mx-auto">
+          <CheckCircle className="h-16 w-16 text-green-600" />
+        </div>
+      </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.5 }}
-          className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200 shadow-lg"
-        >
-          <h3 className="text-xl font-semibold mb-4 text-blue-800">
-            Code unique de la compétition
-          </h3>
-          <div className="relative">
-            <motion.div
-              className="p-4 bg-white rounded-md border border-blue-300 flex justify-between items-center"
-              whileHover={{ boxShadow: "0 4px 12px rgba(59, 130, 246, 0.15)" }}
-            >
-              <div className="flex items-center">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowUniqueCode(!showUniqueCode)}
-                  className="mr-2 text-blue-600"
-                >
-                  <Eye className="h-4 w-4 mr-1" />
-                  {showUniqueCode ? "Masquer" : "Afficher"}
-                </Button>
-                {showUniqueCode ? (
-                  <motion.span
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="font-mono text-lg font-bold text-blue-800"
-                  >
-                    {uniqueCode}
-                  </motion.span>
-                ) : (
-                  <span className="font-mono text-lg font-bold text-blue-800">
-                    ••••••••••
-                  </span>
-                )}
+      <motion.h2
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.3, duration: 0.5 }}
+        className="text-2xl md:text-3xl font-bold text-center mb-2"
+      >
+        Compétition créée avec succès!
+      </motion.h2>
+
+      <motion.p
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.5, duration: 0.5 }}
+        className="text-gray-600 text-center mb-8 max-w-md"
+      >
+        Votre compétition a été créée et est prête à être partagée avec les
+        participants.
+      </motion.p>
+
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.7, duration: 0.5 }}
+        className="w-full max-w-md"
+      >
+        <Card className="border-2 border-green-200 bg-green-50 mb-6">
+          <CardContent className="pt-6">
+            <p className="text-sm text-gray-600 mb-2">
+              Code unique de votre compétition:
+            </p>
+            <div className="flex items-center">
+              <div className="bg-white rounded-l-md border border-r-0 border-gray-300 px-4 py-2 font-mono text-lg font-bold flex-1 overflow-x-auto">
+                {uniqueCode}
               </div>
               <Button
+                onClick={copyToClipboard}
                 variant="outline"
-                size="sm"
-                onClick={copyUniqueCode}
-                className="border-blue-300 hover:bg-blue-100"
+                className="rounded-l-none border border-gray-300 bg-gray-50 hover:bg-gray-100"
               >
-                <Copy className="h-4 w-4 mr-2" /> Copier
+                <Copy className="h-4 w-4" />
               </Button>
-            </motion.div>
-          </div>
-          <p className="text-sm text-blue-700 mt-4">
-            Partagez ce code avec les participants pour qu'ils puissent
-            s'inscrire à cette compétition. Ce code est unique et ne peut être
-            utilisé que pour cette compétition.
-          </p>
-        </motion.div>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Partagez ce code avec les participants pour qu'ils puissent
+              rejoindre votre compétition.
+            </p>
+          </CardContent>
+        </Card>
+      </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.8 }}
-          className="flex justify-between"
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.9, duration: 0.5 }}
+        className="flex flex-col sm:flex-row gap-4 w-full max-w-md"
+      >
+        <Button
+          onClick={onViewDetails}
+          className="flex-1 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 text-white"
         >
-          <Button
-            variant="outline"
-            onClick={onDashboard}
-            className={cn(
-              "border-gray-300 text-gray-700 hover:bg-gray-100 transition-all",
-              "hover:scale-105"
-            )}
-          >
-            Retour au tableau de bord
-          </Button>
-          <Button
-            onClick={onViewDetails}
-            className={cn(
-              "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700",
-              "text-white shadow-md transition-all hover:shadow-lg hover:scale-105"
-            )}
-          >
-            Voir les détails de la compétition
-          </Button>
-        </motion.div>
+          <Eye className="mr-2 h-4 w-4" />
+          Voir les détails
+        </Button>
+        <Button onClick={onDashboard} variant="outline" className="flex-1">
+          <Home className="mr-2 h-4 w-4" />
+          Tableau de bord
+        </Button>
+      </motion.div>
+
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 1.1, duration: 0.5 }}
+        className="mt-8 text-center"
+      >
+        <Button
+          variant="ghost"
+          className="text-sm text-gray-500 flex items-center gap-2"
+        >
+          <Share2 className="h-4 w-4" />
+          Partager sur les réseaux sociaux
+        </Button>
       </motion.div>
     </div>
   );
-};
+}

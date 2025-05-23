@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -23,22 +23,30 @@ interface CountrySelectorProps {
   value: string;
   onChange: (value: string) => void;
   onCountryChange?: (country: Country) => void;
+  className?: string;
+  placeholder?: string;
+  disabled?: boolean;
 }
 
 export function CountrySelector({
   value,
   onChange,
   onCountryChange,
+  className,
+  placeholder = "Sélectionnez un pays",
+  disabled = false,
 }: CountrySelectorProps) {
   const [open, setOpen] = useState(false);
-  const [selectedCountry, setSelectedCountry] = useState<Country | undefined>(
-    COUNTRIES.find((country) => country.code === value)
-  );
+  const selectedCountry = COUNTRIES.find((country) => country.code === value);
 
-  useEffect(() => {
-    const country = COUNTRIES.find((country) => country.code === value);
-    setSelectedCountry(country);
-  }, [value]);
+  const handleSelect = (code: string) => {
+    onChange(code);
+    const country = COUNTRIES.find((c) => c.code === code);
+    if (country && onCountryChange) {
+      onCountryChange(country);
+    }
+    setOpen(false);
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -47,20 +55,24 @@ export function CountrySelector({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full justify-between"
+          className={cn(
+            "w-full justify-between bg-white/80 backdrop-blur-sm border-emerald-600/20 hover:border-emerald-600/40 transition-all",
+            className
+          )}
+          disabled={disabled}
         >
           {selectedCountry ? (
             <div className="flex items-center">
-              <span className="mr-2 text-lg">{selectedCountry.flag}</span>
-              <span>{selectedCountry.name}</span>
+              <span className="mr-2">{selectedCountry.flag}</span>
+              <span className="text-sm">{selectedCountry.name}</span>
             </div>
           ) : (
-            "Sélectionner un pays"
+            <span className="text-muted-foreground">{placeholder}</span>
           )}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-full p-0">
+      <PopoverContent className="w-[300px] p-0">
         <Command>
           <CommandInput placeholder="Rechercher un pays..." />
           <CommandList>
@@ -70,17 +82,14 @@ export function CountrySelector({
                 <CommandItem
                   key={country.code}
                   value={country.name}
-                  onSelect={() => {
-                    onChange(country.code);
-                    if (onCountryChange) {
-                      onCountryChange(country);
-                    }
-                    setOpen(false);
-                  }}
+                  onSelect={() => handleSelect(country.code)}
                 >
-                  <div className="flex items-center">
-                    <span className="mr-2 text-lg">{country.flag}</span>
-                    <span>{country.name}</span>
+                  <div className="flex items-center w-full">
+                    <span className="mr-2">{country.flag}</span>
+                    <span className="text-sm">{country.name}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {country.dialCode}
+                    </span>
                   </div>
                   <Check
                     className={cn(
@@ -97,3 +106,5 @@ export function CountrySelector({
     </Popover>
   );
 }
+
+export default CountrySelector;

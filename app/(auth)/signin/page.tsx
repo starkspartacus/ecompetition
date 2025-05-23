@@ -20,10 +20,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "@/components/ui/use-toast";
-import { CountrySelector } from "@/components/country-selector";
-import { PhoneInput } from "@/components/phone-input";
 import { AuthBackground } from "@/components/auth-background";
-import type { Country } from "@/constants/countries";
+import { COUNTRIES, type Country } from "@/constants/countries";
 import {
   Trophy,
   Mail,
@@ -41,14 +39,21 @@ import {
   AppleButton,
   SocialAuthDivider,
 } from "@/components/social-auth-buttons";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-// Schéma de validation amélioré pour le formulaire de connexion par email
+// Schéma de validation pour le formulaire de connexion par email
 const emailSigninSchema = z.object({
   email: z.string().email("Format d'email invalide. Exemple: nom@domaine.com"),
   password: z.string().min(1, "Le mot de passe est requis"),
 });
 
-// Schéma de validation amélioré pour le formulaire de connexion par téléphone
+// Schéma de validation pour le formulaire de connexion par téléphone
 const phoneSigninSchema = z.object({
   countryCode: z.string().min(1, "Veuillez sélectionner un pays"),
   phoneNumber: z
@@ -104,9 +109,12 @@ export default function SigninPage() {
     }
   }, [loginError, phoneForm]);
 
-  const handleCountryChange = (country: Country) => {
-    setSelectedCountry(country);
-    setDialCode(country.dialCode);
+  const handleCountryChange = (code: string) => {
+    const country = COUNTRIES.find((c) => c.code === code);
+    if (country) {
+      setSelectedCountry(country);
+      setDialCode(country.dialCode);
+    }
   };
 
   const onEmailSubmit = async (values: z.infer<typeof emailSigninSchema>) => {
@@ -355,219 +363,267 @@ export default function SigninPage() {
               </TabsList>
 
               <AnimatePresence mode="wait">
-                <TabsContent value="email" className="mt-0">
-                  <motion.div
-                    key="email-form"
-                    initial="hidden"
-                    animate="visible"
-                    variants={tabVariants}
-                  >
-                    <Form {...emailForm}>
-                      <form
-                        onSubmit={emailForm.handleSubmit(onEmailSubmit)}
-                        className="space-y-4"
-                      >
-                        <FormField
-                          control={emailForm.control}
-                          name="email"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-1.5">
-                                <Mail className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
-                                Email
-                              </FormLabel>
-                              <FormControl>
-                                <div className="relative">
-                                  <Input
-                                    placeholder="john.doe@example.com"
-                                    type="email"
-                                    {...field}
-                                    className={`bg-white/80 backdrop-blur-sm transition-all ${
-                                      emailForm.formState.errors.email
-                                        ? "border-red-500 focus-visible:ring-red-500"
-                                        : isEmailFieldValid("email")
-                                        ? "border-green-500 focus-visible:ring-green-500"
-                                        : "border-emerald-600/20 hover:border-emerald-600/40"
-                                    }`}
-                                  />
-                                  <EmailValidationStatus fieldName="email" />
-                                </div>
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={emailForm.control}
-                          name="password"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-1.5">
-                                <Lock className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
-                                Mot de passe
-                              </FormLabel>
-                              <FormControl>
-                                <div className="relative">
-                                  <Input
-                                    placeholder="********"
-                                    type="password"
-                                    {...field}
-                                    className={`bg-white/80 backdrop-blur-sm transition-all ${
-                                      emailForm.formState.errors.password
-                                        ? "border-red-500 focus-visible:ring-red-500"
-                                        : isEmailFieldValid("password")
-                                        ? "border-green-500 focus-visible:ring-green-500"
-                                        : "border-emerald-600/20 hover:border-emerald-600/40"
-                                    }`}
-                                  />
-                                  <EmailValidationStatus fieldName="password" />
-                                </div>
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <Button
-                          type="submit"
-                          className="w-full bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700"
-                          disabled={isLoading || !emailForm.formState.isValid}
+                {authMethod === "email" && (
+                  <TabsContent key="email-tab" value="email" className="mt-0">
+                    <motion.div
+                      key="email-form"
+                      initial="hidden"
+                      animate="visible"
+                      variants={tabVariants}
+                    >
+                      <Form {...emailForm}>
+                        <form
+                          onSubmit={emailForm.handleSubmit(onEmailSubmit)}
+                          className="space-y-4"
                         >
-                          {isLoading ? "Connexion en cours..." : "Se connecter"}
-                          <ArrowRight className="ml-2 h-4 w-4" />
-                        </Button>
-                      </form>
-                    </Form>
-                  </motion.div>
-                </TabsContent>
+                          <FormField
+                            control={emailForm.control}
+                            name="email"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="flex items-center gap-1.5">
+                                  <Mail className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
+                                  Email
+                                </FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <Input
+                                      placeholder="john.doe@example.com"
+                                      type="email"
+                                      {...field}
+                                      className={`bg-white/80 backdrop-blur-sm transition-all ${
+                                        emailForm.formState.errors.email
+                                          ? "border-red-500 focus-visible:ring-red-500"
+                                          : isEmailFieldValid("email")
+                                          ? "border-green-500 focus-visible:ring-green-500"
+                                          : "border-emerald-600/20 hover:border-emerald-600/40"
+                                      }`}
+                                    />
+                                    <EmailValidationStatus fieldName="email" />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                <TabsContent value="phone" className="mt-0">
-                  <motion.div
-                    key="phone-form"
-                    initial="hidden"
-                    animate="visible"
-                    variants={tabVariants}
-                  >
-                    <Form {...phoneForm}>
-                      <form
-                        onSubmit={phoneForm.handleSubmit(onPhoneSubmit)}
-                        className="space-y-4"
-                      >
-                        <FormField
-                          control={phoneForm.control}
-                          name="countryCode"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-1.5">
-                                <MapPin className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
-                                Pays
-                              </FormLabel>
-                              <FormControl>
-                                <div className="relative">
-                                  <CountrySelector
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    onCountryChange={handleCountryChange}
-                                  />
-                                </div>
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                          <FormField
+                            control={emailForm.control}
+                            name="password"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="flex items-center gap-1.5">
+                                  <Lock className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
+                                  Mot de passe
+                                </FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <Input
+                                      placeholder="********"
+                                      type="password"
+                                      {...field}
+                                      className={`bg-white/80 backdrop-blur-sm transition-all ${
+                                        emailForm.formState.errors.password
+                                          ? "border-red-500 focus-visible:ring-red-500"
+                                          : isEmailFieldValid("password")
+                                          ? "border-green-500 focus-visible:ring-green-500"
+                                          : "border-emerald-600/20 hover:border-emerald-600/40"
+                                      }`}
+                                    />
+                                    <EmailValidationStatus fieldName="password" />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                        <FormField
-                          control={phoneForm.control}
-                          name="phoneNumber"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-1.5">
-                                <Phone className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
-                                Numéro de téléphone
-                              </FormLabel>
-                              <FormControl>
-                                <PhoneInput
-                                  value={field.value}
-                                  onChange={field.onChange}
-                                  countryCode={phoneForm.watch("countryCode")}
-                                  onCountryCodeChange={(code) =>
-                                    phoneForm.setValue("countryCode", code)
-                                  }
-                                  onDialCodeChange={setDialCode}
-                                  placeholder="Numéro de téléphone"
-                                  className={`${
-                                    phoneForm.formState.errors.phoneNumber
-                                      ? "border-red-500 focus-visible:ring-red-500"
-                                      : isPhoneFieldValid("phoneNumber")
-                                      ? "border-green-500 focus-visible:ring-green-500"
-                                      : ""
-                                  }`}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                          <Button
+                            type="submit"
+                            className="w-full bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700"
+                            disabled={isLoading || !emailForm.formState.isValid}
+                          >
+                            {isLoading
+                              ? "Connexion en cours..."
+                              : "Se connecter"}
+                            <ArrowRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        </form>
+                      </Form>
+                    </motion.div>
+                  </TabsContent>
+                )}
 
-                        <FormField
-                          control={phoneForm.control}
-                          name="password"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-1.5">
-                                <Lock className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
-                                Mot de passe
-                              </FormLabel>
-                              <FormControl>
-                                <div className="relative">
-                                  <Input
-                                    placeholder="********"
-                                    type="password"
-                                    {...field}
-                                    className={`bg-white/80 backdrop-blur-sm transition-all ${
-                                      phoneForm.formState.errors.password
-                                        ? "border-red-500 focus-visible:ring-red-500"
-                                        : isPhoneFieldValid("password")
-                                        ? "border-green-500 focus-visible:ring-green-500"
-                                        : "border-emerald-600/20 hover:border-emerald-600/40"
-                                    }`}
-                                  />
-                                  <PhoneValidationStatus fieldName="password" />
-                                </div>
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <Button
-                          type="submit"
-                          className="w-full bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700"
-                          disabled={isLoading || !phoneForm.formState.isValid}
+                {authMethod === "phone" && (
+                  <TabsContent key="phone-tab" value="phone" className="mt-0">
+                    <motion.div
+                      key="phone-form"
+                      initial="hidden"
+                      animate="visible"
+                      variants={tabVariants}
+                    >
+                      <Form {...phoneForm}>
+                        <form
+                          onSubmit={phoneForm.handleSubmit(onPhoneSubmit)}
+                          className="space-y-4"
                         >
-                          {isLoading ? "Connexion en cours..." : "Se connecter"}
-                          <ArrowRight className="ml-2 h-4 w-4" />
-                        </Button>
-                      </form>
-                    </Form>
-                  </motion.div>
-                </TabsContent>
+                          <FormField
+                            control={phoneForm.control}
+                            name="countryCode"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="flex items-center gap-1.5">
+                                  <MapPin className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
+                                  Pays
+                                </FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <Select
+                                      value={field.value}
+                                      onValueChange={field.onChange}
+                                    >
+                                      <SelectTrigger className="bg-white/80 backdrop-blur-sm border-emerald-600/20 hover:border-emerald-600/40 transition-all">
+                                        <SelectValue placeholder="Sélectionnez un pays" />
+                                      </SelectTrigger>
+                                      <SelectContent className="max-h-[300px]">
+                                        {COUNTRIES.map((country) => (
+                                          <SelectItem
+                                            key={country.code}
+                                            value={country.code}
+                                            onClick={() =>
+                                              handleCountryChange(country.code)
+                                            }
+                                          >
+                                            <div className="flex items-center">
+                                              <span className="mr-2">
+                                                {country.flag}
+                                              </span>
+                                              <span>{country.name}</span>
+                                              <span className="ml-auto text-xs text-muted-foreground">
+                                                {country.dialCode}
+                                              </span>
+                                            </div>
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                <TabsContent value="google" className="mt-0">
-                  <motion.div
-                    key="google-form"
-                    initial="hidden"
-                    animate="visible"
-                    variants={tabVariants}
-                    className="flex flex-col space-y-4"
-                  >
-                    <GoogleButton />
-                    <SocialAuthDivider />
-                    <FacebookButton disabled />
-                    <AppleButton disabled />
-                  </motion.div>
-                </TabsContent>
+                          <FormField
+                            control={phoneForm.control}
+                            name="phoneNumber"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="flex items-center gap-1.5">
+                                  <Phone className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
+                                  Numéro de téléphone
+                                </FormLabel>
+                                <FormControl>
+                                  <div className="relative flex">
+                                    <div className="flex-shrink-0 w-[100px] bg-white/80 backdrop-blur-sm border border-r-0 rounded-l-md border-emerald-600/20 flex items-center justify-center">
+                                      {selectedCountry ? (
+                                        <div className="flex items-center">
+                                          <span className="mr-1">
+                                            {selectedCountry.flag}
+                                          </span>
+                                          <span className="text-xs">
+                                            {selectedCountry.dialCode}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-muted-foreground text-xs">
+                                          Code
+                                        </span>
+                                      )}
+                                    </div>
+                                    <Input
+                                      placeholder="Numéro de téléphone"
+                                      type="tel"
+                                      {...field}
+                                      className={`rounded-l-none bg-white/80 backdrop-blur-sm transition-all ${
+                                        phoneForm.formState.errors.phoneNumber
+                                          ? "border-red-500 focus-visible:ring-red-500"
+                                          : isPhoneFieldValid("phoneNumber")
+                                          ? "border-green-500 focus-visible:ring-green-500"
+                                          : "border-emerald-600/20 hover:border-emerald-600/40"
+                                      }`}
+                                    />
+                                    <PhoneValidationStatus fieldName="phoneNumber" />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={phoneForm.control}
+                            name="password"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="flex items-center gap-1.5">
+                                  <Lock className="h-4 w-4 text-emerald-600 dark:text-emerald-500" />
+                                  Mot de passe
+                                </FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <Input
+                                      placeholder="********"
+                                      type="password"
+                                      {...field}
+                                      className={`bg-white/80 backdrop-blur-sm transition-all ${
+                                        phoneForm.formState.errors.password
+                                          ? "border-red-500 focus-visible:ring-red-500"
+                                          : isPhoneFieldValid("password")
+                                          ? "border-green-500 focus-visible:ring-green-500"
+                                          : "border-emerald-600/20 hover:border-emerald-600/40"
+                                      }`}
+                                    />
+                                    <PhoneValidationStatus fieldName="password" />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <Button
+                            type="submit"
+                            className="w-full bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700"
+                            disabled={isLoading || !phoneForm.formState.isValid}
+                          >
+                            {isLoading
+                              ? "Connexion en cours..."
+                              : "Se connecter"}
+                            <ArrowRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        </form>
+                      </Form>
+                    </motion.div>
+                  </TabsContent>
+                )}
+
+                {authMethod === "google" && (
+                  <TabsContent key="google-tab" value="google" className="mt-0">
+                    <motion.div
+                      key="google-form"
+                      initial="hidden"
+                      animate="visible"
+                      variants={tabVariants}
+                      className="flex flex-col space-y-4"
+                    >
+                      <GoogleButton />
+                      <SocialAuthDivider />
+                      <FacebookButton disabled />
+                      <AppleButton disabled />
+                    </motion.div>
+                  </TabsContent>
+                )}
               </AnimatePresence>
             </Tabs>
 

@@ -36,10 +36,11 @@ export async function getDb() {
 }
 
 // Fonction pour convertir une chaîne en ObjectId MongoDB
-export function toObjectId(id: string) {
+export function toObjectId(id: string): ObjectId {
   try {
     return new ObjectId(id);
   } catch (error) {
+    console.error(`Impossible de convertir l'ID en ObjectId: ${id}`, error);
     throw new Error(`ID invalide: ${id}`);
   }
 }
