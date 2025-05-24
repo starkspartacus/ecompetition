@@ -38,6 +38,7 @@ import {
   CheckCircle,
   AlertCircle,
   Search,
+  XCircle,
 } from "lucide-react";
 
 const joinSchema = z.object({
@@ -136,7 +137,12 @@ export default function JoinCompetitionPage() {
       if (response.ok && data.competitions && data.competitions.length > 0) {
         const comp = data.competitions[0];
         setCompetition(comp);
-        console.log("✅ Compétition trouvée:", comp.title);
+        console.log(
+          "✅ Compétition trouvée:",
+          comp.title,
+          "- Statut:",
+          comp.status
+        );
 
         toast({
           title: "Compétition trouvée !",
@@ -248,8 +254,78 @@ export default function JoinCompetitionPage() {
         );
       case "COMPLETED":
         return <Badge className="bg-gray-500 hover:bg-gray-600">Terminé</Badge>;
+      case "DRAFT":
+        return (
+          <Badge className="bg-yellow-500 hover:bg-yellow-600">
+            En préparation
+          </Badge>
+        );
+      case "CANCELLED":
+        return <Badge className="bg-red-500 hover:bg-red-600">Annulé</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  const getStatusMessage = (status: string) => {
+    switch (status) {
+      case "OPEN":
+        return {
+          message: "Vous pouvez demander à participer à cette compétition",
+          icon: CheckCircle,
+          color: "text-green-700 dark:text-green-300",
+          bgColor: "bg-green-50 dark:bg-green-950/20",
+          borderColor: "border-green-200 dark:border-green-800",
+        };
+      case "CLOSED":
+        return {
+          message: "Les inscriptions sont fermées pour cette compétition",
+          icon: XCircle,
+          color: "text-orange-700 dark:text-orange-300",
+          bgColor: "bg-orange-50 dark:bg-orange-950/20",
+          borderColor: "border-orange-200 dark:border-orange-800",
+        };
+      case "IN_PROGRESS":
+        return {
+          message:
+            "Cette compétition est déjà en cours, impossible de s'inscrire",
+          icon: AlertCircle,
+          color: "text-blue-700 dark:text-blue-300",
+          bgColor: "bg-blue-50 dark:bg-blue-950/20",
+          borderColor: "border-blue-200 dark:border-blue-800",
+        };
+      case "COMPLETED":
+        return {
+          message: "Cette compétition est terminée",
+          icon: XCircle,
+          color: "text-gray-700 dark:text-gray-300",
+          bgColor: "bg-gray-50 dark:bg-gray-950/20",
+          borderColor: "border-gray-200 dark:border-gray-800",
+        };
+      case "DRAFT":
+        return {
+          message: "Cette compétition est encore en préparation",
+          icon: AlertCircle,
+          color: "text-yellow-700 dark:text-yellow-300",
+          bgColor: "bg-yellow-50 dark:bg-yellow-950/20",
+          borderColor: "border-yellow-200 dark:border-yellow-800",
+        };
+      case "CANCELLED":
+        return {
+          message: "Cette compétition a été annulée",
+          icon: XCircle,
+          color: "text-red-700 dark:text-red-300",
+          bgColor: "bg-red-50 dark:bg-red-950/20",
+          borderColor: "border-red-200 dark:border-red-800",
+        };
+      default:
+        return {
+          message: "Statut de la compétition inconnu",
+          icon: AlertCircle,
+          color: "text-gray-700 dark:text-gray-300",
+          bgColor: "bg-gray-50 dark:bg-gray-950/20",
+          borderColor: "border-gray-200 dark:border-gray-800",
+        };
     }
   };
 
@@ -343,7 +419,7 @@ export default function JoinCompetitionPage() {
                     )}
                   />
 
-                  {competition && (
+                  {competition && canJoin && (
                     <FormField
                       control={form.control}
                       name="message"
@@ -388,10 +464,15 @@ export default function JoinCompetitionPage() {
                         <Search className="mr-2 h-4 w-4" />
                         Rechercher
                       </>
-                    ) : (
+                    ) : canJoin ? (
                       <>
                         <CheckCircle className="mr-2 h-4 w-4" />
                         Demander à participer
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="mr-2 h-4 w-4" />
+                        Inscription impossible
                       </>
                     )}
                   </Button>
@@ -499,28 +580,25 @@ export default function JoinCompetitionPage() {
                   </div>
                 </div>
 
-                {!canJoin && (
-                  <div className="flex items-center gap-2 p-3 bg-orange-50 dark:bg-orange-950/20 rounded-lg border border-orange-200 dark:border-orange-800">
-                    <AlertCircle className="h-4 w-4 text-orange-600" />
-                    <p className="text-sm text-orange-700 dark:text-orange-300">
-                      {competition.status !== "OPEN"
-                        ? "Les inscriptions ne sont pas ouvertes"
-                        : new Date(competition.registrationDeadline) <=
-                          new Date()
-                        ? "La date limite d'inscription est dépassée"
-                        : "Le nombre maximum de participants est atteint"}
-                    </p>
-                  </div>
-                )}
-
-                {canJoin && (
-                  <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                    <p className="text-sm text-green-700 dark:text-green-300">
-                      Vous pouvez demander à participer à cette compétition
-                    </p>
-                  </div>
-                )}
+                {/* Message de statut */}
+                {(() => {
+                  const statusInfo = getStatusMessage(competition.status);
+                  const Icon = statusInfo.icon;
+                  return (
+                    <div
+                      className={`flex items-center gap-2 p-3 rounded-lg border ${statusInfo.bgColor} ${statusInfo.borderColor}`}
+                    >
+                      <Icon
+                        className={`h-4 w-4 ${statusInfo.color
+                          .replace("text-", "text-")
+                          .replace("dark:text-", "text-")}`}
+                      />
+                      <p className={`text-sm ${statusInfo.color}`}>
+                        {statusInfo.message}
+                      </p>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           ) : (

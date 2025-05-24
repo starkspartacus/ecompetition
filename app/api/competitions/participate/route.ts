@@ -1,8 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import prismaNoTransactions from "@/lib/prisma-no-transactions-alt";
 import { createNotification } from "@/lib/notification-service";
+import { getDb } from "@/lib/mongodb";
+import { ObjectId } from "mongodb";
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,46 +36,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Rechercher la compétition
-    let competition;
+    const db = await getDb();
+
+    // Rechercher la compétition dans MongoDB
+    let competition: any;
     if (competitionId) {
-      competition = await prismaNoTransactions.competition.findUnique({
-        where: { id: competitionId },
-        include: {
-          organizer: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-            },
-          },
-          participations: {
-            where: {
-              status: "ACCEPTED",
-            },
-          },
-        },
-      });
+      competition = await db
+        .collection("Competition")
+        .findOne({ _id: new ObjectId(competitionId) });
     } else if (uniqueCode) {
-      competition = await prismaNoTransactions.competition.findFirst({
-        where: { uniqueCode },
-        include: {
-          organizer: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-            },
-          },
-          participations: {
-            where: {
-              status: "ACCEPTED",
-            },
-          },
-        },
-      });
+      competition = await db.collection("Competition").findOne({ uniqueCode });
     }
 
     if (!competition) {
@@ -84,14 +55,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Récupérer les informations de l'organisateur
+    const organizer = await db
+      .collection("User")
+      .findOne({ _id: new ObjectId(competition.organizerId) });
+    if (!organizer) {
+      return NextResponse.json(
+        { error: "Organisateur non trouvé" },
+        { status: 404 }
+      );
+    }
+
     // Vérifier le statut de la compétition
     if (competition.status !== "OPEN") {
-      return NextResponse.json(
-        {
-          error: "Les inscriptions ne sont pas ouvertes pour cette compétition",
-        },
-        { status: 400 }
-      );
+      let message =
+        "Les inscriptions ne sont pas ouvertes pour cette compétition";
+      switch (competition.status) {
+        case "DRAFT":
+          message = "Cette compétition est encore en préparation";
+          break;
+        case "CLOSED":
+          message = "Les inscriptions sont fermées pour cette compétition";
+          break;
+        case "IN_PROGRESS":
+          message =
+            "Cette compétition est déjà en cours, impossible de s'inscrire";
+          break;
+        case "COMPLETED":
+          message = "Cette compétition est terminée";
+          break;
+        case "CANCELLED":
+          message = "Cette compétition a été annulée";
+          break;
+      }
+      return NextResponse.json({ error: message }, { status: 400 });
     }
 
     // Vérifier la date limite d'inscription
@@ -105,10 +102,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Compter les participants acceptés
+    const acceptedParticipants = await db
+      .collection("Participation")
+      .countDocuments({
+        competitionId: new ObjectId(competition._id),
+        status: "ACCEPTED",
+      });
+
     // Vérifier le nombre maximum de participants
     if (
       competition.maxParticipants &&
-      competition.participations.length >= competition.maxParticipants
+      acceptedParticipants >= competition.maxParticipants
     ) {
       return NextResponse.json(
         { error: "Le nombre maximum de participants est atteint" },
@@ -117,13 +122,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Vérifier si l'utilisateur a déjà une demande pour cette compétition
-    const existingParticipation =
-      await prismaNoTransactions.participation.findFirst({
-        where: {
-          competitionId: competition.id,
-          participantId: session.user.id,
-        },
-      });
+    const existingParticipation = await db.collection("Participation").findOne({
+      competitionId: new ObjectId(competition._id),
+      participantId: new ObjectId(session.user.id),
+    });
 
     if (existingParticipation) {
       let statusMessage = "";
@@ -146,15 +148,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Récupérer les informations du participant
-    const participant = await prismaNoTransactions.user.findUnique({
-      where: { id: session.user.id },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-      },
-    });
+    const participant = await db
+      .collection("User")
+      .findOne(
+        { _id: new ObjectId(session.user.id) },
+        { projection: { firstName: 1, lastName: 1, email: 1 } }
+      );
 
     if (!participant) {
       return NextResponse.json(
@@ -163,17 +162,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Créer la demande de participation
-    const participation = await prismaNoTransactions.participation.create({
-      data: {
-        competitionId: competition.id,
-        participantId: session.user.id,
-        status: "PENDING",
-        message: message || "",
-      },
-    });
+    // Créer la demande de participation dans MongoDB
+    const participationData = {
+      competitionId: new ObjectId(competition._id),
+      participantId: new ObjectId(session.user.id),
+      status: "PENDING",
+      message: message || "",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
 
-    console.log("✅ Demande de participation créée:", participation.id);
+    const result = await db
+      .collection("Participation")
+      .insertOne(participationData);
+    const participationId = result.insertedId.toString();
+
+    console.log("✅ Demande de participation créée:", participationId);
 
     // Créer une notification pour l'organisateur
     const participantName =
@@ -181,11 +185,11 @@ export async function POST(request: NextRequest) {
       "Participant";
 
     await createNotification({
-      userId: competition.organizer.id,
+      userId: organizer._id.toString(),
       type: "PARTICIPATION_REQUEST",
       title: "Nouvelle demande de participation",
       message: `${participantName} souhaite participer à votre compétition "${competition.title}"`,
-      link: `/organizer/participations/${participation.id}`,
+      link: `/organizer/participations/${participationId}`,
     });
 
     console.log("✅ Notification envoyée à l'organisateur");
@@ -193,7 +197,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Demande de participation envoyée avec succès",
-      participationId: participation.id,
+      participationId,
       competitionTitle: competition.title,
     });
   } catch (error) {
