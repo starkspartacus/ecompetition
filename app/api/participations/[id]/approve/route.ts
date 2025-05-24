@@ -30,6 +30,8 @@ export async function POST(
       );
     }
 
+    console.log("✅ Approbation de la participation:", participationId);
+
     // Récupérer la participation avec les informations de la compétition et du participant
     const participation = await prismaNoTransactions.participation.findUnique({
       where: { id: participationId },
@@ -40,6 +42,7 @@ export async function POST(
             title: true,
             organizerId: true,
             maxParticipants: true,
+            status: true,
           },
         },
         participant: {
@@ -72,6 +75,14 @@ export async function POST(
     if (participation.status !== "PENDING") {
       return NextResponse.json(
         { error: "Cette participation a déjà été traitée" },
+        { status: 400 }
+      );
+    }
+
+    // Vérifier que la compétition est encore ouverte
+    if (participation.competition.status !== "OPEN") {
+      return NextResponse.json(
+        { error: "Cette compétition n'est plus ouverte aux inscriptions" },
         { status: 400 }
       );
     }
@@ -109,7 +120,14 @@ export async function POST(
         },
       });
 
+    console.log("✅ Participation approuvée:", updatedParticipation.id);
+
     // Créer une notification pour le participant
+    const participantName =
+      `${participation.participant.firstName || ""} ${
+        participation.participant.lastName || ""
+      }`.trim() || "Participant";
+
     await createNotification({
       userId: participation.participant.id,
       type: "PARTICIPATION_APPROVED",
@@ -118,6 +136,8 @@ export async function POST(
       link: `/participant/competitions/${participation.competition.id}`,
     });
 
+    console.log("✅ Notification envoyée au participant");
+
     return NextResponse.json({
       success: true,
       message: "Participation approuvée avec succès",
@@ -125,14 +145,18 @@ export async function POST(
         id: updatedParticipation.id,
         status: updatedParticipation.status,
         competitionId: participation.competition.id,
+        competitionTitle: participation.competition.title,
         participantId: participation.participant.id,
-        participantName: `${participation.participant.firstName} ${participation.participant.lastName}`,
+        participantName,
         responseMessage: updatedParticipation.responseMessage,
         updatedAt: updatedParticipation.updatedAt,
       },
     });
   } catch (error) {
-    console.error("Erreur lors de l'approbation de la participation:", error);
+    console.error(
+      "❌ Erreur lors de l'approbation de la participation:",
+      error
+    );
     return NextResponse.json(
       { error: "Erreur lors de l'approbation de la participation" },
       { status: 500 }

@@ -1,214 +1,331 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { createCompetition } from "@/lib/competition-service";
-import { getDb } from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import prismaNoTransactions from "@/lib/prisma-no-transactions-alt";
 
-export async function POST(req: Request) {
+export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
     if (!session) {
-      return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    if (session.user.role !== "ORGANIZER") {
+      return NextResponse.json(
+        { error: "Seuls les organisateurs peuvent créer des compétitions" },
+        { status: 403 }
+      );
     }
 
     const userId = session.user?.id;
     if (!userId) {
       return NextResponse.json(
-        { message: "ID utilisateur non trouvé" },
+        { error: "ID utilisateur non trouvé" },
         { status: 400 }
       );
     }
 
-    const data = await req.json();
+    let data;
+    try {
+      // Vérifier si le body existe et n'est pas vide
+      const body = await request.text();
+      if (!body || body.trim() === "") {
+        return NextResponse.json(
+          { error: "Corps de la requête vide" },
+          { status: 400 }
+        );
+      }
 
-    // Créer la compétition
-    const competition = await createCompetition({
-      title: data.title,
-      description: data.description,
-      category: data.category,
-      country: data.country,
-      city: data.city,
-      commune: data.commune,
-      address: data.address,
-      venue: data.venue,
-      registrationStartDate: new Date(data.registrationStartDate),
-      registrationDeadline: new Date(data.registrationDeadline),
-      startDate: new Date(data.startDate),
-      endDate: new Date(data.endDate),
-      maxParticipants: data.maxParticipants,
-      imageUrl: data.imageUrl,
-      bannerUrl: data.bannerUrl,
-      organizerId: userId,
-      status: data.status || "DRAFT",
-      tournamentFormat: data.tournamentFormat,
-      isPublic: data.isPublic !== undefined ? data.isPublic : true,
-      rules: data.rules || [],
+      data = JSON.parse(body);
+    } catch (parseError) {
+      console.error("❌ Erreur de parsing JSON:", parseError);
+      return NextResponse.json(
+        { error: "Format JSON invalide" },
+        { status: 400 }
+      );
+    }
+
+    // Validation des champs requis
+    const requiredFields = [
+      "title",
+      "description",
+      "category",
+      "startDate",
+      "endDate",
+      "registrationDeadline",
+    ];
+    const missingFields = requiredFields.filter((field) => !data[field]);
+
+    if (missingFields.length > 0) {
+      return NextResponse.json(
+        { error: `Champs requis manquants: ${missingFields.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
+    // Validation des dates
+    const startDate = new Date(data.startDate);
+    const endDate = new Date(data.endDate);
+    const registrationDeadline = new Date(data.registrationDeadline);
+    const now = new Date();
+
+    if (
+      isNaN(startDate.getTime()) ||
+      isNaN(endDate.getTime()) ||
+      isNaN(registrationDeadline.getTime())
+    ) {
+      return NextResponse.json(
+        { error: "Format de date invalide" },
+        { status: 400 }
+      );
+    }
+
+    if (startDate <= now) {
+      return NextResponse.json(
+        { error: "La date de début doit être dans le futur" },
+        { status: 400 }
+      );
+    }
+
+    if (endDate <= startDate) {
+      return NextResponse.json(
+        { error: "La date de fin doit être après la date de début" },
+        { status: 400 }
+      );
+    }
+
+    if (registrationDeadline >= startDate) {
+      return NextResponse.json(
+        {
+          error:
+            "La date limite d'inscription doit être avant la date de début",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Générer un code unique pour la compétition
+    const uniqueCode = Math.random()
+      .toString(36)
+      .substring(2, 10)
+      .toUpperCase();
+
+    console.log("🏆 Création d'une nouvelle compétition:", data.title);
+
+    // Créer la compétition avec Prisma
+    const competition = await prismaNoTransactions.competition.create({
+      data: {
+        title: data.title,
+        description: data.description,
+        category: data.category,
+        country: data.country || null,
+        city: data.city || null,
+        commune: data.commune || null,
+        address: data.address || "",
+        venue: data.venue || "",
+        registrationStartDate: data.registrationStartDate
+          ? new Date(data.registrationStartDate)
+          : new Date(),
+        registrationDeadline: registrationDeadline,
+        startDate: startDate,
+        endDate: endDate,
+        maxParticipants: Number.parseInt(data.maxParticipants) || 50,
+        imageUrl: data.imageUrl || null,
+        bannerUrl: data.bannerUrl || null,
+        organizerId: userId,
+        status: data.status || "DRAFT",
+        tournamentFormat: data.tournamentFormat || null,
+        isPublic: data.isPublic !== undefined ? Boolean(data.isPublic) : true,
+        rules: Array.isArray(data.rules) ? data.rules : [],
+        uniqueCode: uniqueCode,
+      },
+      include: {
+        organizer: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+      },
     });
 
-    return NextResponse.json({ competition });
+    console.log("✅ Compétition créée avec succès:", competition.id);
+
+    // Formater la réponse
+    const formattedCompetition = {
+      id: competition.id,
+      title: competition.title,
+      description: competition.description,
+      category: competition.category,
+      country: competition.country,
+      city: competition.city,
+      commune: competition.commune,
+      address: competition.address,
+      venue: competition.venue,
+      registrationStartDate: competition.registrationStartDate?.toISOString(),
+      registrationDeadline: competition.registrationDeadline?.toISOString(),
+      startDate: competition.startDate?.toISOString(),
+      endDate: competition.endDate?.toISOString(),
+      maxParticipants: competition.maxParticipants,
+      imageUrl: competition.imageUrl,
+      bannerUrl: competition.bannerUrl,
+      status: competition.status,
+      tournamentFormat: competition.tournamentFormat,
+      isPublic: competition.isPublic,
+      rules: competition.rules,
+      uniqueCode: competition.uniqueCode,
+      organizerName:
+        `${competition.organizer.firstName || ""} ${
+          competition.organizer.lastName || ""
+        }`.trim() || "Organisateur",
+      createdAt: competition.createdAt.toISOString(),
+      updatedAt: competition.updatedAt.toISOString(),
+    };
+
+    return NextResponse.json(
+      { competition: formattedCompetition },
+      { status: 201 }
+    );
   } catch (error) {
-    console.error("Erreur lors de la création de la compétition:", error);
+    console.error("❌ Erreur lors de la création de la compétition:", error);
     return NextResponse.json(
       {
-        message:
-          "Une erreur est survenue lors de la création de la compétition",
-        error: String(error),
+        error: "Une erreur est survenue lors de la création de la compétition",
       },
       { status: 500 }
     );
   }
 }
 
-export async function GET(req: Request) {
+export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
     if (!session) {
-      return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    const userId = session.user?.id;
-    if (!userId) {
-      return NextResponse.json(
-        { message: "ID utilisateur non trouvé" },
-        { status: 400 }
-      );
-    }
-
-    // Si l'utilisateur est un participant et qu'il y a un code dans la requête, rechercher par code
-    const { searchParams } = new URL(req.url);
+    const searchParams = request.nextUrl.searchParams;
     const code = searchParams.get("code");
 
-    const db = await getDb();
+    console.log(
+      "🔍 Récupération des compétitions pour:",
+      session.user.role,
+      session.user.id
+    );
 
+    // Si c'est un participant avec un code, rechercher la compétition spécifique
     if (session.user.role === "PARTICIPANT" && code) {
-      console.log(
-        `Participant recherche une compétition avec le code: ${code}`
-      );
-
-      // Rechercher la compétition par code unique
-      const competition = await db.collection("Competition").findOne({
-        uniqueCode: code,
-        isPublic: true,
+      const competition = await prismaNoTransactions.competition.findFirst({
+        where: {
+          uniqueCode: code,
+          status: {
+            in: ["OPEN", "CLOSED", "IN_PROGRESS", "COMPLETED"],
+          },
+        },
+        include: {
+          organizer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+          participations: {
+            where: {
+              status: "ACCEPTED",
+            },
+          },
+        },
       });
 
       if (!competition) {
-        // Essayer dans la collection "competitions" (minuscule)
-        const altCompetition = await db.collection("competitions").findOne({
-          uniqueCode: code,
-          isPublic: true,
-        });
-
-        if (altCompetition) {
-          return NextResponse.json({ competitions: [altCompetition] });
-        }
-
-        return NextResponse.json({ competitions: [] });
-      }
-
-      return NextResponse.json({ competitions: [competition] });
-    }
-
-    // Récupérer les compétitions depuis MongoDB
-
-    // Essayer les deux collections possibles
-    let competitions: any[] = [];
-    let collectionName = "";
-
-    try {
-      // Essayer d'abord "Competition" (majuscule)
-      const competitionsCollection = db.collection("Competition");
-      competitions = await competitionsCollection
-        .find({ organizerId: userId })
-        .sort({ createdAt: -1 })
-        .toArray();
-      collectionName = "Competition";
-
-      // Si aucune compétition n'est trouvée, essayer "competitions" (minuscule)
-      if (competitions.length === 0) {
-        const altCollection = db.collection("competitions");
-        const altCompetitions = await altCollection
-          .find({ organizerId: userId })
-          .sort({ createdAt: -1 })
-          .toArray();
-
-        if (altCompetitions.length > 0) {
-          competitions = altCompetitions;
-          collectionName = "competitions";
-        }
-      }
-    } catch (error) {
-      console.error("Erreur lors de la recherche dans la collection:", error);
-      // Essayer la collection alternative si la première échoue
-      try {
-        const altCollection = db.collection("competitions");
-        competitions = await altCollection
-          .find({ organizerId: userId })
-          .sort({ createdAt: -1 })
-          .toArray();
-        collectionName = "competitions";
-      } catch (innerError) {
-        console.error(
-          "Erreur lors de la recherche dans la collection alternative:",
-          innerError
+        return NextResponse.json(
+          { error: "Compétition non trouvée avec ce code" },
+          { status: 404 }
         );
       }
+
+      const formattedCompetition = {
+        id: competition.id,
+        title: competition.title,
+        description: competition.description,
+        category: competition.category,
+        status: competition.status,
+        startDate: competition.startDate,
+        endDate: competition.endDate,
+        registrationDeadline: competition.registrationDeadline,
+        maxParticipants: competition.maxParticipants,
+        currentParticipants: competition.participations.length,
+        participants: competition.participations.length,
+        venue: competition.venue,
+        city: competition.city,
+        country: competition.country,
+        uniqueCode: competition.uniqueCode,
+        organizerName:
+          `${competition.organizer.firstName || ""} ${
+            competition.organizer.lastName || ""
+          }`.trim() || "Organisateur",
+      };
+
+      return NextResponse.json({ competitions: [formattedCompetition] });
     }
 
-    console.log(
-      `Compétitions trouvées dans la collection "${collectionName}" pour l'organisateur ${userId}:`,
-      competitions.length
-    );
+    // Si c'est un organisateur, récupérer ses compétitions
+    if (session.user.role === "ORGANIZER") {
+      const competitions = await prismaNoTransactions.competition.findMany({
+        where: {
+          organizerId: session.user.id,
+        },
+        include: {
+          participations: {
+            where: {
+              status: "ACCEPTED",
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
 
-    // Normaliser les données pour la réponse
-    const normalizedCompetitions = competitions.map((competition) => ({
-      id:
-        competition._id instanceof ObjectId
-          ? competition._id.toString()
-          : String(competition._id),
-      title: competition.title || competition.name || "Sans titre",
-      description: competition.description || "",
-      category: competition.category || "",
-      country: competition.country || "",
-      city: competition.city || "",
-      commune: competition.commune || null,
-      address: competition.address || "",
-      venue: competition.venue || "",
-      registrationStartDate:
-        competition.registrationStartDate?.toISOString() || null,
-      registrationDeadline:
-        competition.registrationDeadline?.toISOString() || null,
-      startDate: competition.startDate?.toISOString() || null,
-      endDate: competition.endDate?.toISOString() || null,
-      maxParticipants: competition.maxParticipants || 0,
-      imageUrl: competition.imageUrl || null,
-      bannerUrl: competition.bannerUrl || null,
-      status: competition.status || "DRAFT",
-      tournamentFormat: competition.tournamentFormat || null,
-      isPublic:
-        competition.isPublic !== undefined ? competition.isPublic : true,
-      rules: competition.rules || [],
-      uniqueCode: competition.uniqueCode || "",
-      createdAt:
-        competition.createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt:
-        competition.updatedAt?.toISOString() || new Date().toISOString(),
-      participants: competition.participants || 0,
-      teams: competition.teams || 0,
-      matches: competition.matches || 0,
-    }));
+      const formattedCompetitions = competitions.map((competition) => ({
+        id: competition.id,
+        title: competition.title,
+        description: competition.description,
+        category: competition.category,
+        status: competition.status,
+        startDate: competition.startDate,
+        endDate: competition.endDate,
+        registrationDeadline: competition.registrationDeadline,
+        maxParticipants: competition.maxParticipants,
+        currentParticipants: competition.participations.length,
+        participants: competition.participations.length,
+        venue: competition.venue,
+        city: competition.city,
+        country: competition.country,
+        uniqueCode: competition.uniqueCode,
+        createdAt: competition.createdAt,
+        updatedAt: competition.updatedAt,
+      }));
 
-    return NextResponse.json({ competitions: normalizedCompetitions });
+      console.log(
+        `✅ ${formattedCompetitions.length} compétitions trouvées pour l'organisateur`
+      );
+
+      return NextResponse.json({ competitions: formattedCompetitions });
+    }
+
+    // Pour les participants sans code, rediriger vers les compétitions publiques
+    return NextResponse.json({ competitions: [] });
   } catch (error) {
-    console.error("Erreur lors de la récupération des compétitions:", error);
+    console.error("❌ Erreur lors de la récupération des compétitions:", error);
     return NextResponse.json(
-      {
-        message:
-          "Une erreur est survenue lors de la récupération des compétitions",
-        error: String(error),
-      },
+      { error: "Erreur lors de la récupération des compétitions" },
       { status: 500 }
     );
   }
