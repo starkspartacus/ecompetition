@@ -19,15 +19,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   useEffect(() => {
     if (!session?.user?.id) return;
 
-    // URL du serveur WebSocket
+    // URL du serveur WebSocket - utilise le port 3001 pour le serveur Socket.IO
     const socketUrl =
-      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3000";
+
+    console.log("🔌 Tentative de connexion WebSocket à:", socketUrl);
 
     // Créer la connexion Socket.IO
     const socket = io(socketUrl, {
       transports: ["websocket", "polling"],
       timeout: 20000,
       forceNew: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
 
     socketRef.current = socket;
@@ -38,10 +42,34 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       setIsConnected(true);
       setConnectionError(null);
 
-      // Rejoindre la room de l'utilisateur
-      socket.emit("join-user-room", session.user.id);
+      // Authentifier l'utilisateur
+      socket.emit("authenticate", {
+        userId: session.user.id,
+        role: session.user.role,
+      });
 
       options.onConnect?.();
+    });
+
+    // Gérer l'authentification
+    socket.on("authenticated", (response) => {
+      if (response.success) {
+        console.log("🔐 Authentifié avec succès sur le WebSocket");
+
+        // Rejoindre la room de l'utilisateur
+        socket.emit("join-room", `user-${session.user.id}`);
+
+        // Si c'est un organisateur, rejoindre la room des organisateurs
+        if (session.user.role === "ORGANIZER") {
+          socket.emit("join-room", "organizers");
+          socket.emit("join-room", `organizer-${session.user.id}`);
+        }
+      } else {
+        console.error(
+          "❌ Échec de l'authentification WebSocket:",
+          response.error
+        );
+      }
     });
 
     // Gérer les erreurs de connexion
@@ -86,8 +114,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const sendMessage = (event: string, data: any) => {
     if (socketRef.current?.connected) {
       socketRef.current.emit(event, data);
+      return true;
     } else {
       console.warn("⚠️ Socket non connecté, impossible d'envoyer le message");
+      return false;
     }
   };
 

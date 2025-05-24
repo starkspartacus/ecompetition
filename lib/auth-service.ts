@@ -222,3 +222,72 @@ export async function getUserById(id: string) {
     return null;
   }
 }
+
+/**
+ * Met à jour un utilisateur dans la base de données
+ * @param id ID de l'utilisateur à mettre à jour
+ * @param updateData Données à mettre à jour
+ * @returns L'utilisateur mis à jour
+ */
+export async function updateUser(id: string, updateData: any) {
+  try {
+    const db = await getDb();
+    const usersCollection = db.collection("User");
+
+    console.log(
+      "Mise à jour de l'utilisateur:",
+      id,
+      "avec les données:",
+      updateData
+    );
+
+    // Ajouter la date de mise à jour
+    const dataWithTimestamp = {
+      ...updateData,
+      updatedAt: new Date(),
+    };
+
+    let result = null;
+
+    // Essayer d'abord avec ObjectId si c'est un ID MongoDB valide
+    if (ObjectId.isValid(id)) {
+      result = await usersCollection.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: dataWithTimestamp },
+        { returnDocument: "after" }
+      );
+    }
+
+    // Si non trouvé, essayer avec l'ID comme chaîne
+    if (!result?.value) {
+      result = await usersCollection.findOneAndUpdate(
+        { id: id },
+        { $set: dataWithTimestamp },
+        { returnDocument: "after" }
+      );
+    }
+
+    if (result?.value) {
+      const user = result.value;
+      // S'assurer que l'ID est une chaîne
+      const userId = user._id ? user._id.toString() : user.id;
+
+      console.log("Utilisateur mis à jour avec succès:", {
+        id: userId,
+        email: user.email,
+      });
+
+      return {
+        ...user,
+        id: userId,
+        _id: user._id,
+      };
+    }
+
+    console.log("Aucun utilisateur trouvé pour la mise à jour avec l'ID:", id);
+    return null;
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour de l'utilisateur:", error);
+    throw new Error("Erreur lors de la mise à jour de l'utilisateur");
+  }
+}
