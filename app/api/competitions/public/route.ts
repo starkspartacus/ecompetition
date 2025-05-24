@@ -9,13 +9,19 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const country = url.searchParams.get("country") || "all";
     const category = url.searchParams.get("category") || "all";
+    const status = url.searchParams.get("status") || "all";
+    const search = url.searchParams.get("search") || "";
 
-    console.log(`Filtres: pays=${country}, catégorie=${category}`);
+    console.log(
+      `Filtres: pays=${country}, catégorie=${category}, statut=${status}, recherche=${search}`
+    );
 
     // Récupérer les compétitions publiques avec les filtres
     const competitions = await getPublicCompetitions({
       country: country !== "all" ? country : undefined,
       category: category !== "all" ? category : undefined,
+      status: status !== "all" ? status : undefined,
+      search: search || undefined,
     });
 
     console.log(`✅ Compétitions publiques récupérées: ${competitions.length}`);
@@ -36,6 +42,8 @@ export async function GET(request: Request) {
       registrationStartDate: comp.registrationStartDate,
       registrationEndDate:
         comp.registrationEndDate || comp.registrationDeadline,
+      registrationDeadline:
+        comp.registrationDeadline || comp.registrationEndDate,
       maxParticipants: comp.maxParticipants || 0,
       currentParticipants: comp.currentParticipants || comp.participants || 0,
       imageUrl: comp.imageUrl || null,

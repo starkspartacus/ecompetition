@@ -90,6 +90,15 @@ export const authOptions: NextAuthOptions = {
 
           console.log("Authentification réussie pour:", user.id);
 
+          // S'assurer que l'ID est bien transmis
+          const userId = user.id || user._id?.toString();
+          if (!userId) {
+            console.error(
+              "ID utilisateur manquant dans les données de l'utilisateur"
+            );
+            throw new Error("ID utilisateur manquant");
+          }
+
           // Vérifier que les propriétés nécessaires existent
           const firstName = user.firstName || "";
           const lastName = user.lastName || "";
@@ -97,7 +106,7 @@ export const authOptions: NextAuthOptions = {
           const role = user.role || "PARTICIPANT";
 
           return {
-            id: user.id,
+            id: userId,
             email: email,
             name: `${firstName} ${lastName}`.trim() || "Utilisateur",
             role: role,
@@ -111,22 +120,37 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, user, account }) {
-      // Conserver les données existantes lors des rafraîchissements de token
+      // Lors de la première connexion, stocker les données utilisateur dans le token
       if (user) {
         token.id = user.id;
         token.role = user.role || "PARTICIPANT";
+        token.email = user.email;
+        token.name = user.name;
 
         // Ajouter des logs pour déboguer
         console.log("JWT Callback - User:", { id: user.id, role: user.role });
         console.log("JWT Callback - Token après mise à jour:", token);
       }
+
+      // S'assurer que l'ID est toujours présent
+      if (!token.id && token.email) {
+        // Si l'ID est manquant mais que l'email est présent, récupérer l'utilisateur
+        const user = await getUserByEmail(token.email as string);
+        if (user) {
+          token.id = user.id || user._id?.toString();
+          console.log("JWT Callback - ID récupéré depuis l'email:", token.id);
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
       // S'assurer que les données du token sont transmises à la session
       if (token && session.user) {
-        session.user.id = token.id;
-        session.user.role = token.role || "PARTICIPANT";
+        session.user.id = token.id as string;
+        session.user.role = (token.role as string) || "PARTICIPANT";
+        session.user.email = token.email as string;
+        session.user.name = token.name as string;
 
         // Ajouter des logs pour déboguer
         console.log("Session Callback - Token:", {

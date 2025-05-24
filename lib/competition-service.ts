@@ -62,6 +62,15 @@ export interface Competition {
   matches: number;
 }
 
+// Type pour les requêtes MongoDB
+interface MongoQuery {
+  [key: string]: any;
+  $or?: Array<{ [key: string]: any }>;
+  $in?: any[];
+  $regex?: RegExp;
+  $options?: string;
+}
+
 /**
  * Crée une nouvelle compétition
  */
@@ -296,7 +305,7 @@ export async function getPublicCompetitions(
     );
 
     // Construire la requête de base
-    const query: any = { isPublic: true };
+    const query: MongoQuery = { isPublic: true };
 
     // Ajouter les filtres si spécifiés
     if (filters.country && filters.country !== "all") {
@@ -307,16 +316,29 @@ export async function getPublicCompetitions(
       query.category = filters.category;
     }
 
-    // Statuts valides pour les compétitions publiques
-    const validStatuses = [
-      CompetitionStatus.DRAFT,
-      CompetitionStatus.OPEN,
-      CompetitionStatus.CLOSED,
-      CompetitionStatus.IN_PROGRESS,
-      CompetitionStatus.COMPLETED,
-    ];
+    // Filtre par statut
+    if (filters.status && filters.status !== "all") {
+      if (filters.status === "COMING_SOON") {
+        // Pour "Prochainement", on cherche les compétitions en DRAFT
+        query.status = "DRAFT";
+      } else {
+        query.status = filters.status;
+      }
+    }
 
-    query.status = { $in: validStatuses };
+    // Filtre de recherche textuelle
+    if (filters.search) {
+      const searchRegex = new RegExp(filters.search, "i");
+      query.$or = [
+        { title: searchRegex },
+        { name: searchRegex },
+        { description: searchRegex },
+        { location: searchRegex },
+        { country: searchRegex },
+        { city: searchRegex },
+        { uniqueCode: filters.search }, // Recherche exacte pour le code
+      ];
+    }
 
     console.log("Requête MongoDB:", JSON.stringify(query, null, 2));
 
@@ -337,27 +359,25 @@ export async function getPublicCompetitions(
       }
     }
 
-    // Si toujours aucune compétition, essayer sans filtres
-    if (competitions.length === 0) {
+    // Si toujours aucune compétition et qu'on a des filtres spécifiques, essayer sans ces filtres
+    if (
+      competitions.length === 0 &&
+      (filters.country || filters.category || filters.status)
+    ) {
       console.log(
-        "Aucune compétition trouvée avec filtres, essai sans filtres..."
+        "Aucune compétition trouvée avec filtres, essai sans filtres spécifiques..."
       );
-      competitions = await find("Competition", { isPublic: true });
+      const baseQuery: MongoQuery = { isPublic: true };
 
-      if (competitions.length === 0) {
-        competitions = await find("competitions", { isPublic: true });
+      // Garder uniquement le filtre de recherche s'il existe
+      if (filters.search) {
+        baseQuery.$or = query.$or;
       }
 
-      // Dernier recours: récupérer toutes les compétitions
-      if (competitions.length === 0) {
-        console.log(
-          "Récupération de toutes les compétitions comme dernier recours..."
-        );
-        competitions = await find("Competition", {});
+      competitions = await find("Competition", baseQuery);
 
-        if (competitions.length === 0) {
-          competitions = await find("competitions", {});
-        }
+      if (competitions.length === 0) {
+        competitions = await find("competitions", baseQuery);
       }
     }
 

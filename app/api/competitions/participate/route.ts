@@ -12,14 +12,42 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
     }
 
-    if (!session.user.id) {
-      return NextResponse.json(
-        { message: "ID utilisateur manquant dans la session" },
-        { status: 400 }
-      );
-    }
+    // Vérifier l'ID utilisateur dans la session
+    if (!session.user?.id) {
+      console.error("ID utilisateur non trouvé dans la session:", session.user);
 
-    console.log(`Utilisateur trouvé par email, ID: ${session.user.id}`);
+      // Si l'ID est manquant mais que l'email est présent, essayer de récupérer l'utilisateur
+      if (session.user?.email) {
+        console.log(
+          "ID utilisateur non trouvé dans la session, recherche par email:",
+          session.user.email
+        );
+
+        const db = await getDb();
+        const usersCollection = db.collection("User");
+        const user = await usersCollection.findOne({
+          email: session.user.email,
+        });
+
+        if (user) {
+          const userId = user._id ? user._id.toString() : user.id;
+          console.log(`Utilisateur trouvé par email, ID: ${userId}`);
+
+          // Utiliser l'ID trouvé pour la suite
+          session.user.id = userId;
+        } else {
+          return NextResponse.json(
+            { message: "Utilisateur non trouvé" },
+            { status: 404 }
+          );
+        }
+      } else {
+        return NextResponse.json(
+          { message: "ID utilisateur manquant dans la session" },
+          { status: 400 }
+        );
+      }
+    }
 
     const { competitionId, uniqueCode, message } = await req.json();
 
