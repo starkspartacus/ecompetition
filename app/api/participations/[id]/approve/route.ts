@@ -1,12 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import prismaNoTransactions from "@/lib/prisma-no-transactions-alt";
+import { getDb } from "@/lib/mongodb";
 import { createNotification } from "@/lib/notification-service";
+import { ObjectId } from "mongodb";
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -21,7 +22,7 @@ export async function POST(
       );
     }
 
-    const participationId = params.id;
+    const { id: participationId } = await params;
 
     if (!participationId) {
       return NextResponse.json(
@@ -32,29 +33,12 @@ export async function POST(
 
     console.log("✅ Approbation de la participation:", participationId);
 
-    // Récupérer la participation avec les informations de la compétition et du participant
-    const participation = await prismaNoTransactions.participation.findUnique({
-      where: { id: participationId },
-      include: {
-        competition: {
-          select: {
-            id: true,
-            title: true,
-            organizerId: true,
-            maxParticipants: true,
-            status: true,
-          },
-        },
-        participant: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        },
-      },
-    });
+    const db = await getDb();
+
+    // Récupérer la participation
+    const participation = await db
+      .collection("Participation")
+      .findOne({ _id: new ObjectId(participationId) });
 
     if (!participation) {
       return NextResponse.json(
@@ -63,8 +47,32 @@ export async function POST(
       );
     }
 
+    // Récupérer la compétition
+    const competition = await db
+      .collection("Competition")
+      .findOne({ _id: new ObjectId(participation.competitionId) });
+
+    if (!competition) {
+      return NextResponse.json(
+        { error: "Compétition non trouvée" },
+        { status: 404 }
+      );
+    }
+
+    // Récupérer le participant
+    const participant = await db
+      .collection("User")
+      .findOne({ _id: new ObjectId(participation.participantId) });
+
+    if (!participant) {
+      return NextResponse.json(
+        { error: "Participant non trouvé" },
+        { status: 404 }
+      );
+    }
+
     // Vérifier que l'organisateur est bien le propriétaire de la compétition
-    if (participation.competition.organizerId !== session.user.id) {
+    if (competition.organizerId.toString() !== session.user.id) {
       return NextResponse.json(
         { error: "Vous n'êtes pas autorisé à approuver cette participation" },
         { status: 403 }
@@ -80,7 +88,7 @@ export async function POST(
     }
 
     // Vérifier que la compétition est encore ouverte
-    if (participation.competition.status !== "OPEN") {
+    if (competition.status !== "OPEN") {
       return NextResponse.json(
         { error: "Cette compétition n'est plus ouverte aux inscriptions" },
         { status: 400 }
@@ -88,18 +96,15 @@ export async function POST(
     }
 
     // Vérifier le nombre maximum de participants si défini
-    if (participation.competition.maxParticipants) {
-      const approvedParticipationsCount =
-        await prismaNoTransactions.participation.count({
-          where: {
-            competitionId: participation.competitionId,
-            status: "ACCEPTED",
-          },
+    if (competition.maxParticipants) {
+      const approvedParticipationsCount = await db
+        .collection("Participation")
+        .countDocuments({
+          competitionId: new ObjectId(competition._id),
+          status: "ACCEPTED",
         });
 
-      if (
-        approvedParticipationsCount >= participation.competition.maxParticipants
-      ) {
+      if (approvedParticipationsCount >= competition.maxParticipants) {
         return NextResponse.json(
           {
             error:
@@ -111,29 +116,30 @@ export async function POST(
     }
 
     // Mettre à jour le statut de la participation
-    const updatedParticipation =
-      await prismaNoTransactions.participation.update({
-        where: { id: participationId },
-        data: {
+    await db.collection("Participation").updateOne(
+      { _id: new ObjectId(participationId) },
+      {
+        $set: {
           status: "ACCEPTED",
           responseMessage: "Participation approuvée",
+          updatedAt: new Date(),
         },
-      });
+      }
+    );
 
-    console.log("✅ Participation approuvée:", updatedParticipation.id);
+    console.log("✅ Participation approuvée:", participationId);
 
     // Créer une notification pour le participant
     const participantName =
-      `${participation.participant.firstName || ""} ${
-        participation.participant.lastName || ""
-      }`.trim() || "Participant";
+      `${participant.firstName || ""} ${participant.lastName || ""}`.trim() ||
+      "Participant";
 
     await createNotification({
-      userId: participation.participant.id,
+      userId: participant._id.toString(),
       type: "PARTICIPATION_APPROVED",
       title: "Participation approuvée",
-      message: `Votre demande de participation à "${participation.competition.title}" a été approuvée !`,
-      link: `/participant/competitions/${participation.competition.id}`,
+      message: `Votre demande de participation à "${competition.title}" a été approuvée !`,
+      link: `/participant/competitions/${competition._id}`,
     });
 
     console.log("✅ Notification envoyée au participant");
@@ -142,14 +148,14 @@ export async function POST(
       success: true,
       message: "Participation approuvée avec succès",
       participation: {
-        id: updatedParticipation.id,
-        status: updatedParticipation.status,
-        competitionId: participation.competition.id,
-        competitionTitle: participation.competition.title,
-        participantId: participation.participant.id,
+        id: participationId,
+        status: "ACCEPTED",
+        competitionId: competition._id.toString(),
+        competitionTitle: competition.title,
+        participantId: participant._id.toString(),
         participantName,
-        responseMessage: updatedParticipation.responseMessage,
-        updatedAt: updatedParticipation.updatedAt,
+        responseMessage: "Participation approuvée",
+        updatedAt: new Date(),
       },
     });
   } catch (error) {

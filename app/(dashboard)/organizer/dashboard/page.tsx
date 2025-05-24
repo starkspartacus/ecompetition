@@ -167,6 +167,19 @@ const categoryIcons: Record<string, string> = {
   Autre: "🏆",
 };
 
+// Fonction utilitaire pour valider et convertir les nombres
+const safeNumber = (value: any): number => {
+  if (value === null || value === undefined || value === "") return 0;
+  const num =
+    typeof value === "string" ? Number.parseInt(value, 10) : Number(value);
+  return isNaN(num) ? 0 : num;
+};
+
+// Fonction utilitaire pour formater les nombres
+const formatNumber = (value: number): string => {
+  return value.toLocaleString("fr-FR");
+};
+
 export default function OrganizerDashboard() {
   const { data: session } = useSession();
   const [competitions, setCompetitions] = useState<Competition[]>([]);
@@ -200,7 +213,16 @@ export default function OrganizerDashboard() {
         throw new Error("Erreur lors de la récupération des compétitions");
       }
       const competitionsData = await competitionsResponse.json();
-      setCompetitions(competitionsData.competitions || []);
+      const comps = competitionsData.competitions || [];
+
+      // Nettoyer et valider les données des compétitions
+      const cleanedCompetitions = comps.map((comp: any) => ({
+        ...comp,
+        participants: safeNumber(comp.participants),
+        maxParticipants: safeNumber(comp.maxParticipants),
+      }));
+
+      setCompetitions(cleanedCompetitions);
 
       // Récupérer les demandes de participation en attente
       const participationsResponse = await fetch("/api/participations/pending");
@@ -209,30 +231,40 @@ export default function OrganizerDashboard() {
         participationsData = await participationsResponse.json();
         setPendingParticipations(participationsData.participations || []);
       } else {
-        participationsData = { participations: [] }; // Provide a default value
+        participationsData = { participations: [] };
       }
 
-      // Calculer les statistiques
-      const comps = competitionsData.competitions || [];
-      const totalParticipants = comps.reduce(
-        (sum: number, comp: Competition) => sum + comp.participants,
+      // Calculer les statistiques avec validation
+      const totalParticipants = cleanedCompetitions.reduce(
+        (sum: number, comp: Competition) => {
+          return sum + safeNumber(comp.participants);
+        },
         0
       );
-      const upcomingCompetitions = comps.filter((comp: Competition) => {
-        if (!comp.startDate) return false;
-        const startDate = new Date(comp.startDate);
-        const now = new Date();
-        return (
-          startDate > now &&
-          (comp.status === "OPEN" || comp.status === "CLOSED")
-        );
-      }).length;
+
+      const upcomingCompetitions = cleanedCompetitions.filter(
+        (comp: Competition) => {
+          if (!comp.startDate) return false;
+          try {
+            const startDate = new Date(comp.startDate);
+            const now = new Date();
+            return (
+              startDate > now &&
+              (comp.status === "OPEN" || comp.status === "CLOSED")
+            );
+          } catch {
+            return false;
+          }
+        }
+      ).length;
 
       setStats({
-        totalCompetitions: comps.length,
-        totalParticipants,
-        pendingRequests: participationsData.participations?.length || 0,
-        upcomingCompetitions,
+        totalCompetitions: safeNumber(cleanedCompetitions.length),
+        totalParticipants: safeNumber(totalParticipants),
+        pendingRequests: safeNumber(
+          participationsData.participations?.length || 0
+        ),
+        upcomingCompetitions: safeNumber(upcomingCompetitions),
       });
     } catch (error) {
       console.error("Erreur:", error);
@@ -250,8 +282,10 @@ export default function OrganizerDashboard() {
   });
 
   const getProgressPercentage = (current: number, max: number) => {
-    if (max === 0) return 0;
-    return Math.min((current / max) * 100, 100);
+    const safeCurrent = safeNumber(current);
+    const safeMax = safeNumber(max);
+    if (safeMax === 0) return 0;
+    return Math.min((safeCurrent / safeMax) * 100, 100);
   };
 
   const formatDate = (dateString: string | null) => {
@@ -374,7 +408,7 @@ export default function OrganizerDashboard() {
           </CardHeader>
           <CardContent className="relative">
             <div className="text-2xl font-bold text-blue-600">
-              {stats.totalCompetitions}
+              {formatNumber(stats.totalCompetitions)}
             </div>
             <p className="text-xs text-muted-foreground">
               <TrendingUp className="h-3 w-3 inline mr-1" />
@@ -395,7 +429,7 @@ export default function OrganizerDashboard() {
           </CardHeader>
           <CardContent className="relative">
             <div className="text-2xl font-bold text-green-600">
-              {stats.totalParticipants}
+              {formatNumber(stats.totalParticipants)}
             </div>
             <p className="text-xs text-muted-foreground">
               <UserCheck className="h-3 w-3 inline mr-1" />
@@ -416,7 +450,7 @@ export default function OrganizerDashboard() {
           </CardHeader>
           <CardContent className="relative">
             <div className="text-2xl font-bold text-orange-600">
-              {stats.pendingRequests}
+              {formatNumber(stats.pendingRequests)}
             </div>
             <p className="text-xs text-muted-foreground">
               <Clock className="h-3 w-3 inline mr-1" />À traiter
@@ -436,7 +470,7 @@ export default function OrganizerDashboard() {
           </CardHeader>
           <CardContent className="relative">
             <div className="text-2xl font-bold text-purple-600">
-              {stats.upcomingCompetitions}
+              {formatNumber(stats.upcomingCompetitions)}
             </div>
             <p className="text-xs text-muted-foreground">
               <Target className="h-3 w-3 inline mr-1" />À venir
@@ -551,14 +585,22 @@ export default function OrganizerDashboard() {
                                     <div className="flex items-center gap-2 text-sm">
                                       <Users className="h-4 w-4 text-muted-foreground" />
                                       <span>
-                                        {competition.participants}/
-                                        {competition.maxParticipants}{" "}
+                                        {formatNumber(
+                                          safeNumber(competition.participants)
+                                        )}
+                                        /
+                                        {formatNumber(
+                                          safeNumber(
+                                            competition.maxParticipants
+                                          )
+                                        )}{" "}
                                         participants
                                       </span>
                                     </div>
                                   </div>
 
-                                  {competition.maxParticipants > 0 && (
+                                  {safeNumber(competition.maxParticipants) >
+                                    0 && (
                                     <div className="mt-4">
                                       <div className="flex justify-between text-sm mb-1">
                                         <span>Participants inscrits</span>
@@ -623,7 +665,7 @@ export default function OrganizerDashboard() {
                 Demandes en attente
                 {stats.pendingRequests > 0 && (
                   <Badge variant="destructive" className="ml-auto">
-                    {stats.pendingRequests}
+                    {formatNumber(stats.pendingRequests)}
                   </Badge>
                 )}
               </CardTitle>
@@ -669,8 +711,8 @@ export default function OrganizerDashboard() {
                   {pendingParticipations.length > 3 && (
                     <Link href="/organizer/participations">
                       <Button variant="outline" className="w-full">
-                        Voir toutes les demandes ({pendingParticipations.length}
-                        )
+                        Voir toutes les demandes (
+                        {formatNumber(pendingParticipations.length)})
                       </Button>
                     </Link>
                   )}
@@ -691,12 +733,16 @@ export default function OrganizerDashboard() {
               {competitions
                 .filter((comp) => {
                   if (!comp.startDate) return false;
-                  const startDate = new Date(comp.startDate);
-                  const now = new Date();
-                  return (
-                    startDate > now &&
-                    (comp.status === "OPEN" || comp.status === "CLOSED")
-                  );
+                  try {
+                    const startDate = new Date(comp.startDate);
+                    const now = new Date();
+                    return (
+                      startDate > now &&
+                      (comp.status === "OPEN" || comp.status === "CLOSED")
+                    );
+                  } catch {
+                    return false;
+                  }
                 })
                 .slice(0, 3)
                 .map((competition) => (
@@ -716,7 +762,8 @@ export default function OrganizerDashboard() {
                     <div className="flex items-center gap-1 mt-1">
                       <Users className="h-3 w-3 text-muted-foreground" />
                       <span className="text-xs text-muted-foreground">
-                        {competition.participants}/{competition.maxParticipants}
+                        {formatNumber(safeNumber(competition.participants))}/
+                        {formatNumber(safeNumber(competition.maxParticipants))}
                       </span>
                     </div>
                   </div>

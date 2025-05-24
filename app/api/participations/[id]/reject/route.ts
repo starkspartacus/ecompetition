@@ -1,12 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import prismaNoTransactions from "@/lib/prisma-no-transactions-alt";
+import { getDb } from "@/lib/mongodb";
 import { createNotification } from "@/lib/notification-service";
+import { ObjectId } from "mongodb";
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -21,7 +22,7 @@ export async function POST(
       );
     }
 
-    const participationId = params.id;
+    const { id: participationId } = await params;
 
     if (!participationId) {
       return NextResponse.json(
@@ -41,27 +42,12 @@ export async function POST(
       rejectionReason
     );
 
-    // Récupérer la participation avec les informations de la compétition et du participant
-    const participation = await prismaNoTransactions.participation.findUnique({
-      where: { id: participationId },
-      include: {
-        competition: {
-          select: {
-            id: true,
-            title: true,
-            organizerId: true,
-          },
-        },
-        participant: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        },
-      },
-    });
+    const db = await getDb();
+
+    // Récupérer la participation
+    const participation = await db
+      .collection("Participation")
+      .findOne({ _id: new ObjectId(participationId) });
 
     if (!participation) {
       return NextResponse.json(
@@ -70,8 +56,32 @@ export async function POST(
       );
     }
 
+    // Récupérer la compétition
+    const competition = await db
+      .collection("Competition")
+      .findOne({ _id: new ObjectId(participation.competitionId) });
+
+    if (!competition) {
+      return NextResponse.json(
+        { error: "Compétition non trouvée" },
+        { status: 404 }
+      );
+    }
+
+    // Récupérer le participant
+    const participant = await db
+      .collection("User")
+      .findOne({ _id: new ObjectId(participation.participantId) });
+
+    if (!participant) {
+      return NextResponse.json(
+        { error: "Participant non trouvé" },
+        { status: 404 }
+      );
+    }
+
     // Vérifier que l'organisateur est bien le propriétaire de la compétition
-    if (participation.competition.organizerId !== session.user.id) {
+    if (competition.organizerId.toString() !== session.user.id) {
       return NextResponse.json(
         { error: "Vous n'êtes pas autorisé à rejeter cette participation" },
         { status: 403 }
@@ -87,28 +97,29 @@ export async function POST(
     }
 
     // Mettre à jour le statut de la participation
-    const updatedParticipation =
-      await prismaNoTransactions.participation.update({
-        where: { id: participationId },
-        data: {
+    await db.collection("Participation").updateOne(
+      { _id: new ObjectId(participationId) },
+      {
+        $set: {
           status: "REJECTED",
           responseMessage: rejectionReason,
+          updatedAt: new Date(),
         },
-      });
+      }
+    );
 
-    console.log("❌ Participation rejetée:", updatedParticipation.id);
+    console.log("❌ Participation rejetée:", participationId);
 
     // Créer une notification pour le participant
     const participantName =
-      `${participation.participant.firstName || ""} ${
-        participation.participant.lastName || ""
-      }`.trim() || "Participant";
+      `${participant.firstName || ""} ${participant.lastName || ""}`.trim() ||
+      "Participant";
 
     await createNotification({
-      userId: participation.participant.id,
+      userId: participant._id.toString(),
       type: "PARTICIPATION_REJECTED",
       title: "Participation rejetée",
-      message: `Votre demande de participation à "${participation.competition.title}" a été rejetée. Raison: ${rejectionReason}`,
+      message: `Votre demande de participation à "${competition.title}" a été rejetée. Raison: ${rejectionReason}`,
       link: `/participant/competitions/browse`,
     });
 
@@ -118,14 +129,14 @@ export async function POST(
       success: true,
       message: "Participation rejetée avec succès",
       participation: {
-        id: updatedParticipation.id,
-        status: updatedParticipation.status,
-        competitionId: participation.competition.id,
-        competitionTitle: participation.competition.title,
-        participantId: participation.participant.id,
+        id: participationId,
+        status: "REJECTED",
+        competitionId: competition._id.toString(),
+        competitionTitle: competition.title,
+        participantId: participant._id.toString(),
         participantName,
-        responseMessage: updatedParticipation.responseMessage,
-        updatedAt: updatedParticipation.updatedAt,
+        responseMessage: rejectionReason,
+        updatedAt: new Date(),
       },
     });
   } catch (error) {
