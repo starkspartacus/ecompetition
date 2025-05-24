@@ -225,7 +225,7 @@ export async function updateCompetitionRules(
         // Try to parse if it's a JSON string
         formattedRules = JSON.parse(rules);
       } catch (e) {
-        // If it's not valid JSON, keep it as a string
+        // If it's not valid JSON, keeping as string
         console.log("Rules is not valid JSON, keeping as string");
       }
     }
@@ -263,4 +263,10 @@ export async function updateUserProfile(id: string, userData: any) {
     );
     throw error;
   }
+}
+
+// Fonction pour se connecter à MongoDB (pour compatibilité)
+export async function connectDB() {
+  // Cette fonction est maintenant obsolète, utilisez Prisma à la place
+  throw new Error("connectDB is deprecated. Use Prisma instead.");
 }

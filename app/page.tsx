@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Trophy, Users, Calendar, Award } from "lucide-react";
+import { Trophy, Users, Award } from "lucide-react";
+import { UpcomingTournaments } from "@/components/upcoming-tournaments";
 
 export default async function Home() {
   const session = await getServerSession(authOptions);
@@ -19,19 +20,15 @@ export default async function Home() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      {/* Vidéo en arrière-plan avec overlay */}
+      {/* Hero avec image du Maracana en arrière-plan */}
       <div className="fixed inset-0 -z-10">
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="absolute inset-0 w-full h-full object-cover"
-          poster="/vibrant-sports-competition.png"
-        >
-          <source src="/sports-video-bg.mp4" type="video/mp4" />
-        </video>
-        <div className="absolute inset-0 bg-black/50"></div>
+        <div
+          className="absolute inset-0 w-full h-full bg-cover bg-center bg-no-repeat"
+          style={{
+            backgroundImage: `url('/maracana-stadium.png')`,
+          }}
+        />
+        <div className="absolute inset-0 bg-black/60"></div>
       </div>
 
       <header className="relative z-10 px-4 lg:px-6 h-20 flex items-center justify-between border-b border-white/10 bg-black/20 backdrop-blur-sm">
@@ -86,7 +83,7 @@ export default async function Home() {
                     <Button
                       size="lg"
                       variant="outline"
-                      className="w-full border-white text-white hover:bg-white/10"
+                      className="w-full border-white text-black hover:bg-white/10 hover:text-white"
                     >
                       Participer à un tournoi
                     </Button>
@@ -96,43 +93,8 @@ export default async function Home() {
               <div className="flex items-center justify-center">
                 <div className="relative w-full max-w-md">
                   <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-primary to-blue-600 opacity-75 blur"></div>
-                  <div className="relative overflow-hidden rounded-lg bg-black/40 backdrop-blur-sm p-6 shadow-xl">
-                    <div className="space-y-4">
-                      <h3 className="text-xl font-bold">Prochains tournois</h3>
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
-                          <Calendar className="h-10 w-10 text-primary" />
-                          <div>
-                            <p className="font-medium">
-                              Tournoi de Football Inter-quartiers
-                            </p>
-                            <p className="text-sm text-white/70">
-                              Dakar, Sénégal • 15 Juin 2025
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
-                          <Calendar className="h-10 w-10 text-primary" />
-                          <div>
-                            <p className="font-medium">
-                              Championnat de Basketball
-                            </p>
-                            <p className="text-sm text-white/70">
-                              Abidjan, Côte d'Ivoire • 22 Juin 2025
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
-                          <Calendar className="h-10 w-10 text-primary" />
-                          <div>
-                            <p className="font-medium">Coupe de Volleyball</p>
-                            <p className="text-sm text-white/70">
-                              Paris, France • 1 Juillet 2025
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                  <div className="relative overflow-hidden rounded-lg bg-black/40 backdrop-blur-sm shadow-xl">
+                    <UpcomingTournaments />
                   </div>
                 </div>
               </div>

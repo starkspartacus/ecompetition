@@ -77,8 +77,41 @@ export async function GET(req: Request) {
       );
     }
 
-    // Récupérer les compétitions depuis MongoDB
+    // Si l'utilisateur est un participant et qu'il y a un code dans la requête, rechercher par code
+    const { searchParams } = new URL(req.url);
+    const code = searchParams.get("code");
+
     const db = await getDb();
+
+    if (session.user.role === "PARTICIPANT" && code) {
+      console.log(
+        `Participant recherche une compétition avec le code: ${code}`
+      );
+
+      // Rechercher la compétition par code unique
+      const competition = await db.collection("Competition").findOne({
+        uniqueCode: code,
+        isPublic: true,
+      });
+
+      if (!competition) {
+        // Essayer dans la collection "competitions" (minuscule)
+        const altCompetition = await db.collection("competitions").findOne({
+          uniqueCode: code,
+          isPublic: true,
+        });
+
+        if (altCompetition) {
+          return NextResponse.json({ competitions: [altCompetition] });
+        }
+
+        return NextResponse.json({ competitions: [] });
+      }
+
+      return NextResponse.json({ competitions: [competition] });
+    }
+
+    // Récupérer les compétitions depuis MongoDB
 
     // Essayer les deux collections possibles
     let competitions: any[] = [];

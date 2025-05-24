@@ -2,27 +2,45 @@ import { type NextRequest, NextResponse } from "next/server";
 import { Server as SocketIOServer } from "socket.io";
 import { createServer } from "http";
 
-// Global variable to store the Socket.IO server instance
+// Variable globale pour stocker l'instance du serveur Socket.IO
 let io: SocketIOServer | null = null;
 
-// Initialize Socket.IO server if it doesn't exist
+// Initialiser le serveur Socket.IO s'il n'existe pas
 function getSocketIOServer() {
   if (!io) {
-    // Create a minimal HTTP server
+    // Créer un serveur HTTP minimal
     const httpServer = createServer();
 
-    // Create a new Socket.IO server
+    // Créer un nouveau serveur Socket.IO
     io = new SocketIOServer(httpServer, {
       cors: {
-        origin: "*",
+        origin: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
         methods: ["GET", "POST"],
+        credentials: true,
       },
+      transports: ["websocket", "polling"],
     });
 
-    // Start listening on a port
+    // Gérer les connexions
+    io.on("connection", (socket) => {
+      console.log(`✅ Utilisateur connecté: ${socket.id}`);
+
+      // Rejoindre une room spécifique à l'utilisateur
+      socket.on("join-user-room", (userId: string) => {
+        socket.join(`user-${userId}`);
+        console.log(`👤 Utilisateur ${userId} a rejoint sa room`);
+      });
+
+      // Gérer la déconnexion
+      socket.on("disconnect", () => {
+        console.log(`❌ Utilisateur déconnecté: ${socket.id}`);
+      });
+    });
+
+    // Démarrer l'écoute sur un port
     const port = Number.parseInt(process.env.SOCKET_PORT || "3001", 10);
     httpServer.listen(port, () => {
-      console.log(`Socket.IO server listening on port ${port}`);
+      console.log(`🚀 Serveur Socket.IO en écoute sur le port ${port}`);
     });
   }
 
@@ -31,28 +49,59 @@ function getSocketIOServer() {
 
 export async function POST(request: NextRequest) {
   try {
-    // Get request body
+    // Récupérer le corps de la requête
     const body = await request.json();
-    const { room, event, data } = body;
+    const { event, userId, data } = body;
 
-    if (!room || !event) {
+    if (!event || !userId) {
       return NextResponse.json(
-        { error: "Room and event are required" },
+        { error: "Les paramètres event et userId sont requis" },
         { status: 400 }
       );
     }
 
-    // Get Socket.IO server
-    const io = getSocketIOServer();
+    // Obtenir le serveur Socket.IO
+    const socketServer = getSocketIOServer();
 
-    // Broadcast to the room
-    io.to(room).emit(event, data);
+    // Envoyer la notification à la room de l'utilisateur
+    const room = `user-${userId}`;
+    socketServer.to(room).emit(event, {
+      ...data,
+      timestamp: new Date().toISOString(),
+    });
 
-    return NextResponse.json({ success: true });
+    console.log(`📡 Notification envoyée à la room ${room}:`, { event, data });
+
+    return NextResponse.json({
+      success: true,
+      message: "Notification envoyée avec succès",
+      room,
+      event,
+    });
   } catch (error) {
-    console.error("Error broadcasting message:", error);
+    console.error("❌ Erreur lors de l'envoi de la notification:", error);
     return NextResponse.json(
-      { error: "Failed to broadcast message" },
+      { error: "Erreur lors de l'envoi de la notification" },
+      { status: 500 }
+    );
+  }
+}
+
+// Endpoint pour obtenir le statut du serveur WebSocket
+export async function GET() {
+  try {
+    const socketServer = getSocketIOServer();
+    const connectedClients = socketServer.engine.clientsCount;
+
+    return NextResponse.json({
+      status: "active",
+      connectedClients,
+      port: process.env.SOCKET_PORT || "3001",
+    });
+  } catch (error) {
+    console.error("❌ Erreur lors de la récupération du statut:", error);
+    return NextResponse.json(
+      { error: "Erreur lors de la récupération du statut" },
       { status: 500 }
     );
   }

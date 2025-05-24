@@ -1,350 +1,312 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { Check, Info, X, AlertCircle } from "lucide-react";
-import { useWebSocket } from "@/hooks/use-websocket";
-import { cn } from "@/lib/utils";
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
+import { Bell, BellRing } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { io, type Socket } from "socket.io-client";
 
 interface Notification {
-  id: string;
+  _id: string;
+  type: string;
   title: string;
   message: string;
-  type: "info" | "success" | "warning" | "error";
-  timestamp: Date;
-  link?: string;
   data?: any;
+  read: boolean;
+  createdAt: string;
 }
 
 export function RealTimeNotifications() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const { isConnected, isAuthenticated, joinOrganizerRoom, on, off } =
-    useWebSocket();
   const { data: session } = useSession();
   const { toast } = useToast();
-  const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
-  const isOrganizerRef = useRef(false);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isConnected, setIsConnected] = useState(false);
 
-  // Initialiser le son de notification
+  // Initialiser la connexion WebSocket
   useEffect(() => {
-    notificationSoundRef.current = new Audio("/sounds/notification.mp3");
-  }, []);
+    if (!session?.user?.id) return;
 
-  // Vérifier si l'utilisateur est un organisateur
-  useEffect(() => {
-    isOrganizerRef.current = session?.user?.role === "ORGANIZER";
-
-    // Si c'est un organisateur, rejoindre sa room spécifique
-    if (isOrganizerRef.current && isConnected) {
-      joinOrganizerRoom();
-    }
-  }, [session, isConnected, joinOrganizerRoom]);
-
-  const addNotification = useCallback((notification: Notification) => {
-    // Jouer le son de notification
-    if (notificationSoundRef.current) {
-      notificationSoundRef.current.play().catch((err) => {
-        console.log("Impossible de jouer le son de notification:", err);
-      });
-    }
-
-    setNotifications((prev) => {
-      // Vérifier si la notification existe déjà (éviter les doublons)
-      const exists = prev.some(
-        (n) =>
-          n.title === notification.title &&
-          n.message === notification.message &&
-          // Considérer comme doublon si moins de 5 secondes d'écart
-          Math.abs(
-            new Date(n.timestamp).getTime() -
-              new Date(notification.timestamp).getTime()
-          ) < 5000
-      );
-
-      if (exists) {
-        return prev;
-      }
-
-      return [notification, ...prev].slice(0, 5);
+    const socketUrl =
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3000";
+    const socketInstance = io(socketUrl, {
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      autoConnect: true,
+      withCredentials: true,
     });
 
-    // Supprimer automatiquement après 8 secondes
-    setTimeout(() => {
-      setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
-    }, 8000);
-  }, []);
+    socketInstance.on("connect", () => {
+      console.log("🔌 Connecté au serveur WebSocket");
+      setIsConnected(true);
 
-  const removeNotification = useCallback((id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-  }, []);
-
-  // Gérer les notifications de mise à jour de statut
-  useEffect(() => {
-    const handleStatusUpdate = (event: CustomEvent<any>) => {
-      const { competitionId, oldStatus, newStatus, reason, isOrganizer } =
-        event.detail;
-
-      // Ne traiter que les notifications destinées aux organisateurs si l'utilisateur est un organisateur
-      if (isOrganizer && !isOrganizerRef.current) {
-        return;
-      }
-
-      addNotification({
-        id: `status-${competitionId}-${Date.now()}`,
-        title: "Statut mis à jour",
-        message: `${
-          reason || "La compétition a changé de statut"
-        }: ${oldStatus} → ${newStatus}`,
-        type: "info",
-        timestamp: new Date(),
-        data: { competitionId, oldStatus, newStatus },
+      // Authentifier l'utilisateur
+      socketInstance.emit("authenticate", {
+        userId: session.user.id,
+        role: session.user.role,
       });
-    };
+    });
 
-    window.addEventListener(
-      "competition-status-updated",
-      handleStatusUpdate as EventListener
-    );
+    socketInstance.on("authenticated", (response) => {
+      if (response.success) {
+        console.log("🔐 Authentifié avec succès sur le WebSocket");
 
-    return () => {
-      window.removeEventListener(
-        "competition-status-updated",
-        handleStatusUpdate as EventListener
-      );
-    };
-  }, [addNotification]);
+        // Rejoindre la room de l'utilisateur
+        socketInstance.emit("join-room", `user-${session.user.id}`);
 
-  // Gérer les notifications WebSocket
-  useEffect(() => {
-    const handleNotification = (event: CustomEvent<any>) => {
-      const {
-        title,
-        message,
-        type = "info",
-        timestamp,
-        link,
-        data,
-      } = event.detail;
-
-      addNotification({
-        id: `notification-${Date.now()}-${Math.random()
-          .toString(36)
-          .substring(2, 9)}`,
-        title,
-        message,
-        type,
-        timestamp: timestamp ? new Date(timestamp) : new Date(),
-        link,
-        data,
-      });
-
-      // Si c'est une notification de participation et que l'utilisateur est un organisateur
-      if (
-        type === "PARTICIPATION_REQUEST" ||
-        event.detail.type === "PARTICIPATION_REQUEST"
-      ) {
-        // Afficher un toast plus visible
-        toast({
-          title: "Nouvelle demande de participation",
-          description: message,
-          variant: "default",
-        });
-      }
-    };
-
-    window.addEventListener(
-      "websocket-notification",
-      handleNotification as EventListener
-    );
-
-    return () => {
-      window.removeEventListener(
-        "websocket-notification",
-        handleNotification as EventListener
-      );
-    };
-  }, [addNotification, toast]);
-
-  // Configurer les écouteurs d'événements WebSocket
-  useEffect(() => {
-    if (isConnected) {
-      // Écouter les notifications
-      const handleNotificationEvent = (data: any) => {
-        const {
-          title,
-          message,
-          type = "info",
-          timestamp,
-          link,
-          data: eventData,
-        } = data;
-
-        addNotification({
-          id: `notification-${Date.now()}-${Math.random()
-            .toString(36)
-            .substring(2, 9)}`,
-          title,
-          message,
-          type,
-          timestamp: timestamp ? new Date(timestamp) : new Date(),
-          link,
-          data: eventData,
-        });
-
-        // Si c'est une notification de participation et que l'utilisateur est un organisateur
-        if (
-          type === "PARTICIPATION_REQUEST" ||
-          data.type === "PARTICIPATION_REQUEST"
-        ) {
-          // Afficher un toast plus visible
-          toast({
-            title: "Nouvelle demande de participation",
-            description: message,
-            variant: "default",
-          });
-        }
-      };
-
-      // Écouter les mises à jour de statut
-      const handleStatusUpdate = (data: any) => {
-        const { competitionId, oldStatus, newStatus, reason, isOrganizer } =
-          data;
-
-        // Ne traiter que les notifications destinées aux organisateurs si l'utilisateur est un organisateur
-        if (isOrganizer && !isOrganizerRef.current) {
-          return;
+        // Si c'est un organisateur, rejoindre la room des organisateurs
+        if (session.user.role === "ORGANIZER") {
+          socketInstance.emit("join-room", "organizers");
+          socketInstance.emit("join-room", `organizer-${session.user.id}`);
         }
 
-        addNotification({
-          id: `status-${competitionId}-${Date.now()}`,
-          title: "Statut mis à jour",
-          message: `${
-            reason || "La compétition a changé de statut"
-          }: ${oldStatus} → ${newStatus}`,
-          type: "info",
-          timestamp: new Date(),
-          data: { competitionId, oldStatus, newStatus },
-        });
-      };
-
-      // Enregistrer les écouteurs
-      on("notification", handleNotificationEvent);
-      on("status-updated", handleStatusUpdate);
-
-      // Nettoyer les écouteurs
-      return () => {
-        off("notification", handleNotificationEvent);
-        off("status-updated", handleStatusUpdate);
-      };
-    }
-  }, [isConnected, addNotification, on, off, toast]);
-
-  // Ajouter une notification de connexion WebSocket uniquement lors du changement d'état
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-
-    if (isConnected && isAuthenticated) {
-      // Délai pour éviter les notifications trop fréquentes
-      timeoutId = setTimeout(() => {
-        addNotification({
-          id: `websocket-connected-${Date.now()}`,
-          title: "Connecté",
-          message: "Vous recevrez les mises à jour en temps réel",
-          type: "success",
-          timestamp: new Date(),
-        });
-      }, 1000);
-    }
-
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
+        // Charger les notifications
+        fetchNotifications();
+      } else {
+        console.error(
+          "❌ Échec de l'authentification WebSocket:",
+          response.error
+        );
       }
-    };
-  }, [isConnected, isAuthenticated, addNotification]);
+    });
 
-  const getIcon = (type: Notification["type"]) => {
-    switch (type) {
-      case "success":
-        return <Check className="h-5 w-5 text-green-500" />;
-      case "warning":
-        return <AlertCircle className="h-5 w-5 text-amber-500" />;
-      case "error":
-        return <AlertCircle className="h-5 w-5 text-red-500" />;
-      case "info":
-      default:
-        return <Info className="h-5 w-5 text-blue-500" />;
+    socketInstance.on("disconnect", (reason) => {
+      console.log(`🔌 Déconnecté du serveur WebSocket: ${reason}`);
+      setIsConnected(false);
+    });
+
+    socketInstance.on("notification", (notification) => {
+      console.log("📬 Nouvelle notification reçue:", notification);
+
+      // Ajouter la notification à la liste
+      setNotifications((prev) => [
+        {
+          _id: notification._id || `temp-${Date.now()}`,
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          data: notification.data,
+          read: false,
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+
+      // Incrémenter le compteur de notifications non lues
+      setUnreadCount((prev) => prev + 1);
+
+      // Afficher un toast
+      toast({
+        title: notification.title,
+        description: notification.message,
+        duration: 5000,
+      });
+    });
+
+    socketInstance.on("new-participation-request", (data) => {
+      console.log("🏆 Nouvelle demande de participation reçue:", data);
+
+      // Afficher un toast avec un bouton d'action
+      toast({
+        title: "Nouvelle demande de participation",
+        description: `${data.participantName} souhaite participer à "${data.competitionTitle}"`,
+        duration: 8000,
+        action: (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              window.location.href = `/organizer/participations/${data.participationId}`;
+            }}
+          >
+            Voir
+          </Button>
+        ),
+      });
+    });
+
+    socketInstance.on("connect_error", (error) => {
+      console.error("❌ Erreur de connexion WebSocket:", error);
+    });
+
+    setSocket(socketInstance);
+
+    // Nettoyage à la déconnexion
+    return () => {
+      socketInstance.disconnect();
+    };
+  }, [session?.user?.id, session?.user?.role, toast]);
+
+  // Charger les notifications depuis l'API
+  const fetchNotifications = async () => {
+    try {
+      const response = await fetch("/api/notifications");
+      if (response.ok) {
+        const data = await response.json();
+        setNotifications(data.notifications || []);
+        setUnreadCount(data.unreadCount || 0);
+      }
+    } catch (error) {
+      console.error("Erreur lors du chargement des notifications:", error);
     }
   };
 
-  const getColor = (type: Notification["type"]) => {
-    switch (type) {
-      case "success":
-        return "border-green-500 bg-green-50 dark:bg-green-900/20";
-      case "warning":
-        return "border-amber-500 bg-amber-50 dark:bg-amber-900/20";
-      case "error":
-        return "border-red-500 bg-red-50 dark:bg-red-900/20";
-      case "info":
-      default:
-        return "border-blue-500 bg-blue-50 dark:bg-blue-900/20";
+  // Marquer une notification comme lue
+  const markAsRead = async (notificationId: string) => {
+    try {
+      const response = await fetch(`/api/notifications/mark-read`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ notificationId }),
+      });
+
+      if (response.ok) {
+        // Mettre à jour l'état local
+        setNotifications((prev) =>
+          prev.map((notif) =>
+            notif._id === notificationId ? { ...notif, read: true } : notif
+          )
+        );
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error(
+        "Erreur lors du marquage de la notification comme lue:",
+        error
+      );
     }
   };
 
+  // Marquer toutes les notifications comme lues
+  const markAllAsRead = async () => {
+    try {
+      const response = await fetch(`/api/notifications/mark-all-read`, {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        // Mettre à jour l'état local
+        setNotifications((prev) =>
+          prev.map((notif) => ({ ...notif, read: true }))
+        );
+        setUnreadCount(0);
+      }
+    } catch (error) {
+      console.error(
+        "Erreur lors du marquage de toutes les notifications comme lues:",
+        error
+      );
+    }
+  };
+
+  // Gérer le clic sur une notification
   const handleNotificationClick = (notification: Notification) => {
-    if (notification.link) {
-      window.location.href = notification.link;
+    // Marquer comme lue
+    if (!notification.read) {
+      markAsRead(notification._id);
+    }
+
+    // Rediriger en fonction du type de notification
+    if (
+      notification.type === "PARTICIPATION_REQUEST" &&
+      notification.data?.participationId
+    ) {
+      window.location.href = `/organizer/participations/${notification.data.participationId}`;
+    } else if (notification.data?.competitionId) {
+      window.location.href = `/${session?.user?.role?.toLowerCase()}/competitions/${
+        notification.data.competitionId
+      }`;
     }
   };
+
+  // Formater la date
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return new Intl.DateTimeFormat("fr-FR", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  };
+
+  if (!session?.user) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-      <AnimatePresence>
-        {notifications.map((notification) => (
-          <motion.div
-            key={notification.id}
-            initial={{ opacity: 0, y: 50, scale: 0.3 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.5, transition: { duration: 0.2 } }}
-            className={cn(
-              "flex w-80 items-start gap-3 rounded-lg border-l-4 bg-white p-4 shadow-lg dark:bg-gray-800",
-              getColor(notification.type),
-              notification.link
-                ? "cursor-pointer hover:shadow-xl transition-shadow"
-                : ""
-            )}
-            onClick={() => handleNotificationClick(notification)}
-          >
-            <div className="mt-0.5">{getIcon(notification.type)}</div>
-            <div className="flex-1">
-              <h4 className="font-medium">{notification.title}</h4>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative">
+          {isConnected ? (
+            <BellRing className="h-5 w-5" />
+          ) : (
+            <Bell className="h-5 w-5" />
+          )}
+          {unreadCount > 0 && (
+            <Badge
+              variant="destructive"
+              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
+            >
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </Badge>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel className="flex justify-between items-center">
+          <span>Notifications</span>
+          {unreadCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={markAllAsRead}>
+              Tout marquer comme lu
+            </Button>
+          )}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {notifications.length === 0 ? (
+          <div className="py-4 px-2 text-center text-muted-foreground">
+            Aucune notification
+          </div>
+        ) : (
+          notifications.slice(0, 5).map((notification) => (
+            <DropdownMenuItem
+              key={notification._id}
+              className={`flex flex-col items-start p-3 cursor-pointer ${
+                !notification.read ? "bg-muted/50" : ""
+              }`}
+              onClick={() => handleNotificationClick(notification)}
+            >
+              <div className="flex justify-between w-full">
+                <span className="font-medium">{notification.title}</span>
+                <span className="text-xs text-muted-foreground">
+                  {formatDate(notification.createdAt)}
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">
                 {notification.message}
               </p>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {new Date(notification.timestamp).toLocaleTimeString()}
-              </p>
-              {notification.link && (
-                <p className="mt-1 text-xs text-blue-500 hover:underline">
-                  Cliquer pour voir
-                </p>
-              )}
-            </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                removeNotification(notification.id);
-              }}
-              className="text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
-              aria-label="Fermer"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </motion.div>
-        ))}
-      </AnimatePresence>
-    </div>
+            </DropdownMenuItem>
+          ))
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="justify-center font-medium"
+          onClick={() => (window.location.href = "/notifications")}
+        >
+          Voir toutes les notifications
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

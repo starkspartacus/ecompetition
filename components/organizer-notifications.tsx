@@ -1,17 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Bell } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
+import { useToast } from "@/hooks/use-toast";
+import { Bell, BellRing, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { formatDistanceToNow } from "date-fns";
-import { fr } from "date-fns/locale";
-import { useRouter } from "next/navigation";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { io, type Socket } from "socket.io-client";
 
 interface Notification {
   _id: string;
@@ -20,171 +23,430 @@ interface Notification {
   message: string;
   data?: any;
   read: boolean;
-  createdAt: Date;
+  createdAt: string;
 }
 
-interface OrganizerNotificationsProps {
-  userId: string;
-  initialNotifications: Notification[];
-  initialCount: number;
+interface ParticipationRequest {
+  participationId: string;
+  competitionId: string;
+  competitionTitle: string;
+  participantId: string;
+  participantName: string;
+  timestamp: string;
 }
 
-export function OrganizerNotifications({
-  userId,
-  initialNotifications,
-  initialCount,
-}: OrganizerNotificationsProps) {
-  const [notifications, setNotifications] = useState<Notification[]>(
-    initialNotifications || []
-  );
-  const [unreadCount, setUnreadCount] = useState<number>(initialCount || 0);
-  const [open, setOpen] = useState(false);
-  const router = useRouter();
+export function OrganizerNotifications() {
+  const { data: session } = useSession();
+  const { toast } = useToast();
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [participationRequests, setParticipationRequests] = useState<
+    ParticipationRequest[]
+  >([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isConnected, setIsConnected] = useState(false);
 
-  // Écouter les nouvelles notifications via WebSocket
+  // Initialiser la connexion WebSocket
   useEffect(() => {
-    // Fonction pour gérer les nouvelles notifications
-    const handleNewNotification = (notification: Notification) => {
-      setNotifications((prev) => [notification, ...prev]);
-      setUnreadCount((prev) => prev + 1);
-    };
+    if (!session?.user?.id || session?.user?.role !== "ORGANIZER") return;
 
-    // Configurer le WebSocket (si disponible)
-    if (typeof window !== "undefined") {
-      // Vérifier si le socket est disponible
-      const socket = (window as any).socket;
+    const socketUrl =
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3000";
+    const socketInstance = io(socketUrl, {
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      autoConnect: true,
+      withCredentials: true,
+    });
 
-      if (socket) {
-        // S'abonner aux notifications
-        socket.on("notification", handleNewNotification);
+    socketInstance.on("connect", () => {
+      console.log("🔌 Connecté au serveur WebSocket");
+      setIsConnected(true);
 
-        // Nettoyer l'abonnement
-        return () => {
-          socket.off("notification", handleNewNotification);
-        };
-      }
-    }
-  }, []);
-
-  // Marquer les notifications comme lues
-  const markAsRead = async (notificationId?: string) => {
-    try {
-      const endpoint = notificationId
-        ? `/api/notifications/mark-read?id=${notificationId}`
-        : `/api/notifications/mark-read?userId=${userId}`;
-
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+      // Authentifier l'utilisateur
+      socketInstance.emit("authenticate", {
+        userId: session.user.id,
+        role: "ORGANIZER",
       });
+    });
 
+    socketInstance.on("authenticated", (response) => {
+      if (response.success) {
+        console.log("🔐 Authentifié avec succès sur le WebSocket");
+
+        // Rejoindre les rooms spécifiques
+        socketInstance.emit("join-room", `user-${session.user.id}`);
+        socketInstance.emit("join-room", "organizers");
+        socketInstance.emit("join-room", `organizer-${session.user.id}`);
+
+        // Charger les notifications
+        fetchNotifications();
+        fetchParticipationRequests();
+      } else {
+        console.error(
+          "❌ Échec de l'authentification WebSocket:",
+          response.error
+        );
+      }
+    });
+
+    socketInstance.on("disconnect", (reason) => {
+      console.log(`🔌 Déconnecté du serveur WebSocket: ${reason}`);
+      setIsConnected(false);
+    });
+
+    socketInstance.on("notification", (notification) => {
+      console.log("📬 Nouvelle notification reçue:", notification);
+
+      // Ajouter la notification à la liste
+      setNotifications((prev) => [
+        {
+          _id: notification._id || `temp-${Date.now()}`,
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          data: notification.data,
+          read: false,
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+
+      // Incrémenter le compteur de notifications non lues
+      setUnreadCount((prev) => prev + 1);
+
+      // Afficher un toast
+      toast({
+        title: notification.title,
+        description: notification.message,
+        duration: 5000,
+      });
+    });
+
+    socketInstance.on("new-participation-request", (data) => {
+      console.log("🏆 Nouvelle demande de participation reçue:", data);
+
+      // Ajouter à la liste des demandes de participation
+      setParticipationRequests((prev) => [
+        {
+          participationId: data.participationId,
+          competitionId: data.competitionId,
+          competitionTitle: data.competitionTitle,
+          participantId: data.participantId,
+          participantName: data.participantName,
+          timestamp: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+
+      // Afficher un toast avec des boutons d'action
+      toast({
+        title: "Nouvelle demande de participation",
+        description: `${data.participantName} souhaite participer à "${data.competitionTitle}"`,
+        duration: 10000,
+        action: (
+          <div className="flex space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                approveParticipation(data.participationId);
+              }}
+            >
+              <Check className="h-4 w-4 mr-1" />
+              Approuver
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                window.location.href = `/organizer/participations/${data.participationId}`;
+              }}
+            >
+              Voir
+            </Button>
+          </div>
+        ),
+      });
+    });
+
+    socketInstance.on("connect_error", (error) => {
+      console.error("❌ Erreur de connexion WebSocket:", error);
+    });
+
+    setSocket(socketInstance);
+
+    // Nettoyage à la déconnexion
+    return () => {
+      socketInstance.disconnect();
+    };
+  }, [session?.user?.id, session?.user?.role, toast]);
+
+  // Charger les notifications depuis l'API
+  const fetchNotifications = async () => {
+    try {
+      const response = await fetch("/api/notifications");
       if (response.ok) {
-        if (notificationId) {
-          // Marquer une seule notification comme lue
-          setNotifications((prev) =>
-            prev.map((n) =>
-              n._id === notificationId ? { ...n, read: true } : n
-            )
-          );
-          setUnreadCount((prev) => Math.max(0, prev - 1));
-        } else {
-          // Marquer toutes les notifications comme lues
-          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-          setUnreadCount(0);
-        }
+        const data = await response.json();
+        setNotifications(data.notifications || []);
+        setUnreadCount(data.unreadCount || 0);
+      }
+    } catch (error) {
+      console.error("Erreur lors du chargement des notifications:", error);
+    }
+  };
+
+  // Charger les demandes de participation en attente
+  const fetchParticipationRequests = async () => {
+    try {
+      const response = await fetch("/api/participations/pending");
+      if (response.ok) {
+        const data = await response.json();
+        setParticipationRequests(data.participations || []);
       }
     } catch (error) {
       console.error(
-        "Erreur lors du marquage des notifications comme lues:",
+        "Erreur lors du chargement des demandes de participation:",
         error
       );
     }
   };
 
-  // Gérer le clic sur une notification
-  const handleNotificationClick = async (notification: Notification) => {
-    // Marquer comme lue
-    if (!notification.read) {
-      await markAsRead(notification._id);
-    }
-
-    // Rediriger en fonction du type de notification
-    if (
-      notification.type === "PARTICIPATION_REQUEST" &&
-      notification.data?.participationId
-    ) {
-      router.push(
-        `/organizer/participations/${notification.data.participationId}`
+  // Approuver une participation
+  const approveParticipation = async (participationId: string) => {
+    try {
+      const response = await fetch(
+        `/api/participations/${participationId}/approve`,
+        {
+          method: "POST",
+        }
       );
-    } else if (notification.data?.competitionId) {
-      router.push(`/organizer/competitions/${notification.data.competitionId}`);
-    }
 
-    // Fermer le popover
-    setOpen(false);
+      if (response.ok) {
+        // Mettre à jour la liste des demandes
+        setParticipationRequests((prev) =>
+          prev.filter((req) => req.participationId !== participationId)
+        );
+
+        toast({
+          title: "Participation approuvée",
+          description: "Le participant a été ajouté à la compétition",
+          duration: 3000,
+        });
+      } else {
+        const error = await response.json();
+        toast({
+          title: "Erreur",
+          description: error.error || "Une erreur est survenue",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Erreur lors de l'approbation de la participation:", error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors de l'approbation",
+        variant: "destructive",
+      });
+    }
   };
 
+  // Rejeter une participation
+  const rejectParticipation = async (participationId: string) => {
+    try {
+      const response = await fetch(
+        `/api/participations/${participationId}/reject`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ reason: "Rejeté par l'organisateur" }),
+        }
+      );
+
+      if (response.ok) {
+        // Mettre à jour la liste des demandes
+        setParticipationRequests((prev) =>
+          prev.filter((req) => req.participationId !== participationId)
+        );
+
+        toast({
+          title: "Participation rejetée",
+          description: "La demande a été rejetée",
+          duration: 3000,
+        });
+      } else {
+        const error = await response.json();
+        toast({
+          title: "Erreur",
+          description: error.error || "Une erreur est survenue",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Erreur lors du rejet de la participation:", error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors du rejet",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Marquer une notification comme lue
+  const markAsRead = async (notificationId: string) => {
+    try {
+      const response = await fetch(`/api/notifications/mark-read`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ notificationId }),
+      });
+
+      if (response.ok) {
+        // Mettre à jour l'état local
+        setNotifications((prev) =>
+          prev.map((notif) =>
+            notif._id === notificationId ? { ...notif, read: true } : notif
+          )
+        );
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error(
+        "Erreur lors du marquage de la notification comme lue:",
+        error
+      );
+    }
+  };
+
+  // Formater la date
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return new Intl.DateTimeFormat("fr-FR", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  };
+
+  if (!session?.user || session.user.role !== "ORGANIZER") return null;
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative">
+          {isConnected ? (
+            <BellRing className="h-5 w-5" />
+          ) : (
+            <Bell className="h-5 w-5" />
+          )}
           {unreadCount > 0 && (
             <Badge
               variant="destructive"
-              className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full p-0 text-xs"
+              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
             >
               {unreadCount > 9 ? "9+" : unreadCount}
             </Badge>
           )}
         </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" align="end">
-        <div className="flex items-center justify-between border-b p-3">
-          <h4 className="font-medium">Notifications</h4>
-          {unreadCount > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => markAsRead()}>
-              Tout marquer comme lu
-            </Button>
-          )}
-        </div>
-        <div className="max-h-80 overflow-y-auto">
-          {notifications.length > 0 ? (
-            <div className="divide-y">
-              {notifications.map((notification) => (
-                <div
-                  key={notification._id}
-                  className={`cursor-pointer p-3 transition-colors hover:bg-muted ${
-                    !notification.read ? "bg-muted/50" : ""
-                  }`}
-                  onClick={() => handleNotificationClick(notification)}
-                >
-                  <div className="flex items-start justify-between">
-                    <h5 className="font-medium">{notification.title}</h5>
-                    <span className="text-xs text-muted-foreground">
-                      {formatDistanceToNow(new Date(notification.createdAt), {
-                        addSuffix: true,
-                        locale: fr,
-                      })}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {notification.message}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center p-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                Aucune notification
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-96">
+        <DropdownMenuLabel>Demandes de participation</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {participationRequests.length === 0 ? (
+          <div className="py-2 px-2 text-center text-muted-foreground">
+            Aucune demande en attente
+          </div>
+        ) : (
+          participationRequests.slice(0, 3).map((request) => (
+            <DropdownMenuItem
+              key={request.participationId}
+              className="flex flex-col items-start p-3"
+              onSelect={(e) => e.preventDefault()}
+            >
+              <div className="flex justify-between w-full">
+                <span className="font-medium">{request.participantName}</span>
+                <span className="text-xs text-muted-foreground">
+                  {formatDate(request.timestamp)}
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">
+                Souhaite participer à "{request.competitionTitle}"
               </p>
-            </div>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
+              <div className="flex space-x-2 mt-2 w-full justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => approveParticipation(request.participationId)}
+                >
+                  <Check className="h-4 w-4 mr-1" />
+                  Approuver
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => rejectParticipation(request.participationId)}
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  Rejeter
+                </Button>
+              </div>
+            </DropdownMenuItem>
+          ))
+        )}
+        {participationRequests.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="justify-center font-medium"
+              onClick={() =>
+                (window.location.href = "/organizer/participations")
+              }
+            >
+              Voir toutes les demandes ({participationRequests.length})
+            </DropdownMenuItem>
+          </>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Notifications récentes</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {notifications.length === 0 ? (
+          <div className="py-2 px-2 text-center text-muted-foreground">
+            Aucune notification
+          </div>
+        ) : (
+          notifications.slice(0, 3).map((notification) => (
+            <DropdownMenuItem
+              key={notification._id}
+              className={`flex flex-col items-start p-3 ${
+                !notification.read ? "bg-muted/50" : ""
+              }`}
+              onClick={() => markAsRead(notification._id)}
+            >
+              <div className="flex justify-between w-full">
+                <span className="font-medium">{notification.title}</span>
+                <span className="text-xs text-muted-foreground">
+                  {formatDate(notification.createdAt)}
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">
+                {notification.message}
+              </p>
+            </DropdownMenuItem>
+          ))
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="justify-center font-medium"
+          onClick={() => (window.location.href = "/organizer/notifications")}
+        >
+          Voir toutes les notifications
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

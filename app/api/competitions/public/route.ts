@@ -1,70 +1,83 @@
-import { NextResponse } from "next/server";
-import { getPublicCompetitions } from "@/lib/competition-service";
+import { type NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import prisma from "@/lib/prisma";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    console.log("🔍 Récupération des compétitions publiques...");
+    const session = await getServerSession(authOptions);
+    const searchParams = request.nextUrl.searchParams;
+    const code = searchParams.get("code");
 
-    // Récupérer les paramètres de l'URL
-    const url = new URL(request.url);
-    const country = url.searchParams.get("country") || "all";
-    const category = url.searchParams.get("category") || "all";
-    const status = url.searchParams.get("status") || "all";
-    const search = url.searchParams.get("search") || "";
+    // Si un code est fourni, rechercher la compétition spécifique
+    if (code) {
+      const competition = await prisma.competition.findFirst({
+        where: {
+          code: code,
+          status: {
+            in: [
+              "PUBLISHED",
+              "REGISTRATION_OPEN",
+              "REGISTRATION_CLOSED",
+              "IN_PROGRESS",
+              "COMPLETED",
+            ],
+          },
+        },
+        include: {
+          organizer: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+      });
 
-    console.log(
-      `Filtres: pays=${country}, catégorie=${category}, statut=${status}, recherche=${search}`
-    );
+      if (!competition) {
+        return NextResponse.json(
+          { error: "Compétition non trouvée ou code invalide" },
+          { status: 404 }
+        );
+      }
 
-    // Récupérer les compétitions publiques avec les filtres
-    const competitions = await getPublicCompetitions({
-      country: country !== "all" ? country : undefined,
-      category: category !== "all" ? category : undefined,
-      status: status !== "all" ? status : undefined,
-      search: search || undefined,
+      return NextResponse.json({ competitions: [competition] });
+    }
+
+    // Sinon, récupérer toutes les compétitions publiques
+    const competitions = await prisma.competition.findMany({
+      where: {
+        status: {
+          in: [
+            "PUBLISHED",
+            "REGISTRATION_OPEN",
+            "REGISTRATION_CLOSED",
+            "IN_PROGRESS",
+            "COMPLETED",
+          ],
+        },
+      },
+      include: {
+        organizer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
     });
 
-    console.log(`✅ Compétitions publiques récupérées: ${competitions.length}`);
-
-    // Log des statuts pour débogage
-    const statusCounts = competitions.reduce((acc, comp) => {
-      const status = comp.status || "UNKNOWN";
-      acc[status] = (acc[status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    console.log("Répartition des statuts:", statusCounts);
-
-    // Normaliser les données pour l'affichage
-    const normalizedCompetitions = competitions.map((comp) => ({
-      id: comp.id || comp._id?.toString(),
-      name: comp.name || comp.title || "Sans titre",
-      title: comp.title || comp.name || "Sans titre",
-      description: comp.description || "",
-      category: comp.category || "Non spécifié",
-      location:
-        comp.location ||
-        `${comp.address || ""}, ${comp.city || ""}, ${comp.country || ""}`,
-      country: comp.country || "",
-      startDate: comp.startDate,
-      endDate: comp.endDate,
-      registrationStartDate: comp.registrationStartDate,
-      registrationEndDate:
-        comp.registrationEndDate || comp.registrationDeadline,
-      registrationDeadline:
-        comp.registrationDeadline || comp.registrationEndDate,
-      maxParticipants: comp.maxParticipants || 0,
-      currentParticipants: comp.currentParticipants || comp.participants || 0,
-      imageUrl: comp.imageUrl || null,
-      status: comp.status || "DRAFT",
-      uniqueCode: comp.uniqueCode || "",
-      createdAt: comp.createdAt || new Date(),
-      updatedAt: comp.updatedAt || new Date(),
-    }));
-
-    return NextResponse.json({ competitions: normalizedCompetitions });
+    return NextResponse.json({ competitions });
   } catch (error) {
     console.error(
-      "❌ Erreur lors de la récupération des compétitions publiques:",
+      "Erreur lors de la récupération des compétitions publiques:",
       error
     );
     return NextResponse.json(
