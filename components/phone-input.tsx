@@ -55,13 +55,14 @@ export function PhoneInput({
     ) {
       setSelectedCountry(country);
     }
-  }, [countryCode]); // Dépendance réduite, selectedCountry retiré
+  }, [countryCode, selectedCountry]);
 
   const handleCountrySelect = (country: Country) => {
     onCountryCodeChange(country.code);
     if (onDialCodeChange) {
       onDialCodeChange(country.dialCode);
     }
+    setSelectedCountry(country);
     setOpen(false);
   };
 
@@ -127,7 +128,12 @@ export function PhoneInput({
         type="tel"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-l-none bg-white/80 backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-all"
+        className={cn(
+          "rounded-l-none",
+          className?.includes("border-")
+            ? ""
+            : "bg-white/80 backdrop-blur-sm border-primary/20 hover:border-primary/40"
+        )}
         placeholder={placeholder}
         disabled={disabled}
       />

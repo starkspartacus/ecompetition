@@ -138,7 +138,7 @@ export interface Competition {
   startDate?: Date;
   endDate?: Date;
   description?: string;
-  rules?: string;
+  rules?: string[] | any; // Updated to handle both string and array
   prizes?: any;
   uniqueCode: string;
   status: CompetitionStatus;

@@ -26,6 +26,14 @@ export async function GET(request: Request) {
 
     console.log(`✅ Compétitions publiques récupérées: ${competitions.length}`);
 
+    // Log des statuts pour débogage
+    const statusCounts = competitions.reduce((acc, comp) => {
+      const status = comp.status || "UNKNOWN";
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log("Répartition des statuts:", statusCounts);
+
     // Normaliser les données pour l'affichage
     const normalizedCompetitions = competitions.map((comp) => ({
       id: comp.id || comp._id?.toString(),

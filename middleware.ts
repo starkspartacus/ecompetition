@@ -1,70 +1,40 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
 
-export async function middleware(request: NextRequest) {
-  try {
-    const token = await getToken({
-      req: request,
-      secret: process.env.NEXTAUTH_SECRET,
-    });
+export function middleware(request: NextRequest) {
+  // Store the HTTP server reference globally for Socket.IO
+  // @ts-ignore
+  if (!global.__httpServer && request.nextUrl.pathname === "/api/socket/io") {
+    // @ts-ignore
+    global.__httpServer = (request as any).socket?.server;
+  }
 
-    // Si l'utilisateur n'est pas connecté et essaie d'accéder à une route protégée
-    if (
-      !token &&
-      !request.nextUrl.pathname.startsWith("/signin") &&
-      !request.nextUrl.pathname.startsWith("/signup") &&
-      !request.nextUrl.pathname.startsWith("/api") &&
-      request.nextUrl.pathname !== "/"
-    ) {
-      return NextResponse.redirect(new URL("/signin", request.url));
-    }
+  // Existing middleware logic
+  const token = request.cookies.get("next-auth.session-token");
+  const isAuthPage =
+    request.nextUrl.pathname.startsWith("/signin") ||
+    request.nextUrl.pathname.startsWith("/signup");
+  const isDashboard =
+    request.nextUrl.pathname.startsWith("/organizer") ||
+    request.nextUrl.pathname.startsWith("/participant");
 
-    // Si l'utilisateur est connecté et essaie d'accéder à la page de connexion ou d'inscription
-    if (
-      token &&
-      (request.nextUrl.pathname.startsWith("/signin") ||
-        request.nextUrl.pathname.startsWith("/signup"))
-    ) {
-      // Rediriger vers le tableau de bord approprié en fonction du rôle
-      if (token.role === "ORGANIZER") {
-        return NextResponse.redirect(
-          new URL("/organizer/dashboard", request.url)
-        );
-      } else {
-        return NextResponse.redirect(
-          new URL("/participant/dashboard", request.url)
-        );
-      }
-    }
+  if (isDashboard && !token) {
+    return NextResponse.redirect(new URL("/signin", request.url));
+  }
 
-    // Vérifier les accès spécifiques aux rôles
-    if (token) {
-      // Routes uniquement pour les organisateurs
-      if (
-        request.nextUrl.pathname.startsWith("/organizer") &&
-        token.role !== "ORGANIZER"
-      ) {
-        return NextResponse.redirect(new URL("/", request.url));
-      }
-
-      // Routes uniquement pour les participants
-      if (
-        request.nextUrl.pathname.startsWith("/participant") &&
-        token.role !== "PARTICIPANT"
-      ) {
-        return NextResponse.redirect(new URL("/", request.url));
-      }
-    }
-  } catch (error) {
-    console.error("Middleware error:", error);
-    // En cas d'erreur, on continue la navigation
+  if (isAuthPage && token) {
+    return NextResponse.redirect(new URL("/organizer/dashboard", request.url));
   }
 
   return NextResponse.next();
 }
 
-// Configurer les routes concernées par le middleware
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    "/organizer/:path*",
+    "/participant/:path*",
+    "/signin",
+    "/signup",
+    "/api/socket/io",
+  ],
 };

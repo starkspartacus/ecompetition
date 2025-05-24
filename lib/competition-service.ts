@@ -320,10 +320,14 @@ export async function getPublicCompetitions(
     if (filters.status && filters.status !== "all") {
       if (filters.status === "COMING_SOON") {
         // Pour "Prochainement", on cherche les compétitions en DRAFT
-        query.status = "DRAFT";
+        query.status = CompetitionStatus.DRAFT;
       } else {
+        // Pour les autres statuts, utiliser directement la valeur
         query.status = filters.status;
       }
+    } else {
+      // Si aucun filtre de statut, exclure les CANCELLED
+      query.status = { $ne: CompetitionStatus.CANCELLED };
     }
 
     // Filtre de recherche textuelle

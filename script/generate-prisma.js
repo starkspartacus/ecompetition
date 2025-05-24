@@ -1,30 +1,29 @@
+// This script generates the Prisma client
 const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-console.log("🔄 Génération du client Prisma...");
+// Path to the schema file
+const schemaPath = path.join(__dirname, "../prisma/schema.prisma");
 
-try {
-  // Vérifier si le dossier node_modules/@prisma existe
-  const prismaNodeModulesPath = path.join(
-    process.cwd(),
-    "node_modules",
-    "@prisma"
-  );
-  if (!fs.existsSync(prismaNodeModulesPath)) {
-    console.log("📦 Installation de prisma...");
-    execSync("npm install prisma --save-dev", { stdio: "inherit" });
-  }
-
-  // Générer le client Prisma
-  console.log("🔨 Exécution de prisma generate...");
-  execSync("npx prisma generate", { stdio: "inherit" });
-
-  console.log("✅ Client Prisma généré avec succès!");
-} catch (error) {
-  console.error(
-    "❌ Erreur lors de la génération du client Prisma:",
-    error.message
-  );
+// Check if the schema file exists
+if (!fs.existsSync(schemaPath)) {
+  console.error("Schema file not found at:", schemaPath);
   process.exit(1);
 }
+
+console.log("Generating Prisma client...");
+
+try {
+  // Run the prisma generate command
+  execSync("npx prisma generate", { stdio: "inherit" });
+  console.log("Prisma client generated successfully!");
+} catch (error) {
+  console.error("Error generating Prisma client:", error.message);
+  process.exit(1);
+}
+
+// Optionally, you can add code to restart your application here
+console.log(
+  "Remember to restart your application to use the new Prisma client."
+);

@@ -1,201 +1,278 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getDb } from "@/lib/mongodb";
+import { connectDB } from "@/lib/mongodb-client";
 import { ObjectId } from "mongodb";
+import { broadcastToOrganizer } from "@/lib/websocket-service";
 
-export async function POST(req: Request) {
+export async function POST(request: NextRequest) {
   try {
+    // Vérifier l'authentification
     const session = await getServerSession(authOptions);
-
-    if (!session) {
-      return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
-    }
-
-    // Vérifier l'ID utilisateur dans la session
-    if (!session.user?.id) {
-      console.error("ID utilisateur non trouvé dans la session:", session.user);
-
-      // Si l'ID est manquant mais que l'email est présent, essayer de récupérer l'utilisateur
-      if (session.user?.email) {
-        console.log(
-          "ID utilisateur non trouvé dans la session, recherche par email:",
-          session.user.email
-        );
-
-        const db = await getDb();
-        const usersCollection = db.collection("User");
-        const user = await usersCollection.findOne({
-          email: session.user.email,
-        });
-
-        if (user) {
-          const userId = user._id ? user._id.toString() : user.id;
-          console.log(`Utilisateur trouvé par email, ID: ${userId}`);
-
-          // Utiliser l'ID trouvé pour la suite
-          session.user.id = userId;
-        } else {
-          return NextResponse.json(
-            { message: "Utilisateur non trouvé" },
-            { status: 404 }
-          );
-        }
-      } else {
-        return NextResponse.json(
-          { message: "ID utilisateur manquant dans la session" },
-          { status: 400 }
-        );
-      }
-    }
-
-    const { competitionId, uniqueCode, message } = await req.json();
-
-    if (!competitionId || !uniqueCode) {
-      return NextResponse.json(
-        { message: "L'ID de la compétition et le code unique sont requis" },
-        { status: 400 }
-      );
-    }
-
-    const db = await getDb();
-    const competitionsCollection = db.collection("Competition");
-
-    // Vérifier si la compétition existe et si le code est correct
-    let query = {};
-
-    if (ObjectId.isValid(competitionId)) {
-      query = { _id: new ObjectId(competitionId) };
-    } else {
-      query = { uniqueCode: competitionId };
-    }
-
-    const competition = await competitionsCollection.findOne(query);
-
-    if (!competition) {
-      return NextResponse.json(
-        { message: "Compétition non trouvée" },
-        { status: 404 }
-      );
-    }
-
-    if (competition.uniqueCode !== uniqueCode) {
-      return NextResponse.json(
-        { message: "Code d'invitation incorrect" },
-        { status: 400 }
-      );
-    }
-
-    // Vérifier si la compétition est ouverte aux inscriptions
-    if (
-      competition.status !== "OPEN" &&
-      competition.status !== "PUBLISHED" &&
-      competition.status !== "REGISTRATION_OPEN"
-    ) {
+    if (!session || !session.user) {
       return NextResponse.json(
         {
-          message:
-            "Les inscriptions ne sont pas ouvertes pour cette compétition",
+          success: false,
+          message: "Non autorisé - Veuillez vous connecter",
+        },
+        { status: 401 }
+      );
+    }
+
+    // Récupérer les données de la requête
+    const data = await request.json();
+    const { competitionId, message, uniqueCode } = data;
+
+    if (!competitionId && !uniqueCode) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "L'ID de la compétition ou le code unique est requis",
         },
         { status: 400 }
       );
     }
 
-    // Vérifier si la période d'inscription est valide
-    const now = new Date();
-    const registrationStartDate = competition.registrationStartDate
-      ? new Date(competition.registrationStartDate)
-      : null;
-    const registrationEndDate = competition.registrationDeadline
-      ? new Date(competition.registrationDeadline)
-      : competition.registrationEndDate
-      ? new Date(competition.registrationEndDate)
-      : null;
-
-    if (registrationStartDate && now < registrationStartDate) {
-      return NextResponse.json(
-        { message: "Les inscriptions ne sont pas encore ouvertes" },
-        { status: 400 }
-      );
-    }
-
-    if (registrationEndDate && now > registrationEndDate) {
-      return NextResponse.json(
-        { message: "La période d'inscription est terminée" },
-        { status: 400 }
-      );
-    }
-
-    // Vérifier si le nombre maximum de participants est atteint
-    if (
-      competition.maxParticipants &&
-      competition.currentParticipants >= competition.maxParticipants
-    ) {
-      return NextResponse.json(
-        { message: "Le nombre maximum de participants est atteint" },
-        { status: 400 }
-      );
-    }
-
-    // Vérifier si l'utilisateur est déjà inscrit
+    // Connexion à la base de données
+    const db = await connectDB();
+    const competitionsCollection = db.collection("Competition");
     const participationsCollection = db.collection("Participation");
+    const usersCollection = db.collection("User");
+    const notificationsCollection = db.collection("Notification");
+
+    // Récupérer l'utilisateur
+    let userId = session.user.id;
+
+    // Si l'ID n'est pas dans la session, le récupérer depuis la base de données
+    if (!userId && session.user.email) {
+      const user = await usersCollection.findOne({ email: session.user.email });
+      if (user && user._id) {
+        userId = user._id.toString();
+      }
+    }
+
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "ID utilisateur manquant dans la session",
+        },
+        { status: 400 }
+      );
+    }
+
+    const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Utilisateur non trouvé",
+        },
+        { status: 404 }
+      );
+    }
+
+    // Récupérer la compétition par ID ou code unique
+    let competition;
+    if (competitionId) {
+      competition = await competitionsCollection.findOne({
+        _id: new ObjectId(competitionId),
+      });
+    } else if (uniqueCode) {
+      competition = await competitionsCollection.findOne({ uniqueCode });
+    }
+
+    if (!competition) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Compétition non trouvée",
+        },
+        { status: 404 }
+      );
+    }
+
+    // Vérifier si l'utilisateur a déjà participé à cette compétition
     const existingParticipation = await participationsCollection.findOne({
       competitionId: competition._id,
-      participantId: new ObjectId(session.user.id),
+      participantId: new ObjectId(userId),
     });
 
     if (existingParticipation) {
       return NextResponse.json(
-        { message: "Vous êtes déjà inscrit à cette compétition" },
+        {
+          success: false,
+          message: "Vous êtes déjà inscrit à cette compétition",
+          participationStatus: existingParticipation.status,
+        },
         { status: 400 }
       );
     }
 
-    // Créer une nouvelle participation
-    const participation = {
+    // Vérifier le statut de la compétition
+    const now = new Date();
+
+    // Vérifier si les inscriptions sont ouvertes
+    if (competition.status !== "OPEN") {
+      if (competition.status === "DRAFT") {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Les inscriptions ne sont pas encore ouvertes pour cette compétition",
+          },
+          { status: 400 }
+        );
+      } else if (competition.status === "CLOSED") {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Les inscriptions sont fermées pour cette compétition",
+          },
+          { status: 400 }
+        );
+      } else if (competition.status === "IN_PROGRESS") {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Cette compétition est déjà en cours",
+          },
+          { status: 400 }
+        );
+      } else if (competition.status === "COMPLETED") {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Cette compétition est terminée",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Vérifier les dates d'inscription
+    const registrationDeadline =
+      competition.registrationDeadline || competition.registrationEndDate;
+    if (registrationDeadline && now > new Date(registrationDeadline)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "La période d'inscription est terminée pour cette compétition",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Vérifier le nombre maximum de participants
+    const currentParticipantsCount =
+      await participationsCollection.countDocuments({
+        competitionId: competition._id,
+        status: { $in: ["PENDING", "APPROVED"] },
+      });
+
+    if (
+      competition.maxParticipants &&
+      currentParticipantsCount >= competition.maxParticipants
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Le nombre maximum de participants pour cette compétition est atteint",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Créer la participation
+    const participationData = {
       competitionId: competition._id,
-      participantId: new ObjectId(session.user.id),
-      participantName: session.user.name || "Participant",
-      participantEmail: session.user.email || "",
-      status: "PENDING", // PENDING, APPROVED, REJECTED
-      message: message || "",
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      participantId: new ObjectId(userId),
+      participantName:
+        `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email,
+      participantEmail: user.email,
+      participantPhone: user.phoneNumber || "",
+      status: "PENDING",
+      message: message || "Demande de participation",
+      createdAt: now,
+      updatedAt: now,
     };
 
-    const result = await participationsCollection.insertOne(participation);
+    const result = await participationsCollection.insertOne(participationData);
+
+    if (!result.acknowledged) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Erreur lors de la création de la participation",
+        },
+        { status: 500 }
+      );
+    }
 
     // Créer une notification pour l'organisateur
-    const notificationsCollection = db.collection("Notification");
-    await notificationsCollection.insertOne({
-      userId: competition.organizerId,
+    const notificationData = {
       type: "PARTICIPATION_REQUEST",
       title: "Nouvelle demande de participation",
       message: `${
-        session.user.name || "Un participant"
+        participationData.participantName
       } souhaite participer à votre compétition "${
-        competition.name || competition.title
+        competition.title || "Sans titre"
       }"`,
+      isRead: false,
+      userId: competition.organizerId,
+      link: `/organizer/participations/${result.insertedId}`,
       data: {
         competitionId: competition._id.toString(),
-        competitionName: competition.name || competition.title,
+        competitionTitle: competition.title || "Sans titre",
         participationId: result.insertedId.toString(),
-        participantId: session.user.id,
-        participantName: session.user.name || "Participant",
+        participantId: userId,
+        participantName: participationData.participantName,
       },
-      read: false,
-      createdAt: new Date(),
-    });
+      createdAt: now,
+    };
+
+    await notificationsCollection.insertOne(notificationData);
+
+    // Envoyer une notification en temps réel à l'organisateur
+    try {
+      console.log(
+        "Envoi de notification en temps réel à l'organisateur:",
+        competition.organizerId.toString()
+      );
+      await broadcastToOrganizer(
+        competition.organizerId.toString(),
+        "new_participation",
+        {
+          participationId: result.insertedId.toString(),
+          competitionTitle: competition.title || "Sans titre",
+          participantName: participationData.participantName,
+          timestamp: now.toISOString(),
+        }
+      );
+    } catch (wsError) {
+      console.error(
+        "Erreur lors de l'envoi de la notification WebSocket:",
+        wsError
+      );
+      // Continue même si la notification WebSocket échoue
+    }
 
     return NextResponse.json({
-      message: "Demande de participation envoyée avec succès",
+      success: true,
+      message: "Votre demande de participation a été envoyée avec succès",
       participationId: result.insertedId.toString(),
+      competitionTitle: competition.title || "Sans titre",
     });
   } catch (error) {
-    console.error("Erreur lors de la demande de participation:", error);
+    console.error("Erreur lors de la participation:", error);
     return NextResponse.json(
       {
-        message: "Une erreur est survenue lors de la demande de participation",
+        success: false,
+        message:
+          "Une erreur est survenue lors de la demande de participation. Veuillez réessayer.",
       },
       { status: 500 }
     );

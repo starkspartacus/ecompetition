@@ -1,44 +1,31 @@
+// This script resets the Prisma client and database connection
 const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-console.log("🧹 Nettoyage complet de Prisma...");
+console.log("Resetting Prisma client and database connection...");
 
-try {
-  // Supprimer le dossier .next
-  const nextDir = path.join(process.cwd(), ".next");
-  if (fs.existsSync(nextDir)) {
-    console.log("🗑️  Suppression du dossier .next...");
-    fs.rmSync(nextDir, { recursive: true, force: true });
+// Path to the Prisma client directory
+const prismaClientDir = path.join(__dirname, "../node_modules/.prisma");
+
+// Check if the directory exists
+if (fs.existsSync(prismaClientDir)) {
+  console.log("Removing Prisma client directory...");
+  try {
+    fs.rmSync(prismaClientDir, { recursive: true, force: true });
+    console.log("Prisma client directory removed successfully.");
+  } catch (error) {
+    console.error("Error removing Prisma client directory:", error.message);
   }
-
-  // Supprimer le dossier node_modules/.prisma
-  const prismaDir = path.join(process.cwd(), "node_modules", ".prisma");
-  if (fs.existsSync(prismaDir)) {
-    console.log("🗑️  Suppression du dossier node_modules/.prisma...");
-    fs.rmSync(prismaDir, { recursive: true, force: true });
-  }
-
-  // Supprimer le dossier node_modules/@prisma
-  const prismaPkgDir = path.join(process.cwd(), "node_modules", "@prisma");
-  if (fs.existsSync(prismaPkgDir)) {
-    console.log("🗑️  Suppression du dossier node_modules/@prisma...");
-    fs.rmSync(prismaPkgDir, { recursive: true, force: true });
-  }
-
-  // Réinstaller Prisma
-  console.log("📦 Réinstallation de prisma et @prisma/client...");
-  execSync("npm install prisma @prisma/client --save", { stdio: "inherit" });
-
-  // Générer le client Prisma
-  console.log("🔨 Génération du client Prisma...");
-  execSync("npx prisma generate", { stdio: "inherit" });
-
-  console.log("✅ Réinitialisation de Prisma terminée avec succès!");
-} catch (error) {
-  console.error(
-    "❌ Erreur lors de la réinitialisation de Prisma:",
-    error.message
-  );
-  process.exit(1);
 }
+
+// Generate a new Prisma client
+console.log("Generating new Prisma client...");
+try {
+  execSync("npx prisma generate", { stdio: "inherit" });
+  console.log("Prisma client generated successfully!");
+} catch (error) {
+  console.error("Error generating Prisma client:", error.message);
+}
+
+console.log("Prisma reset complete. Please restart your application.");

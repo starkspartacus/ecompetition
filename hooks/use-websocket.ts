@@ -3,214 +3,394 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { io, type Socket } from "socket.io-client";
+import { useToast } from "@/components/ui/use-toast";
 
 interface UseWebSocketOptions {
-  autoReconnect?: boolean;
-  reconnectAttempts?: number;
-  reconnectDelay?: number;
   debug?: boolean;
 }
 
-interface UseWebSocketReturn {
-  socket: Socket | null;
-  isConnected: boolean;
-  lastMessage: any;
-  sendMessage: (event: string, data: any) => boolean;
-  connect: () => void;
-  disconnect: () => void;
-}
-
-export function useWebSocket(
-  options: UseWebSocketOptions = {}
-): UseWebSocketReturn {
-  const {
-    autoReconnect = true,
-    reconnectAttempts = 5,
-    reconnectDelay = 2000,
-    debug = false,
-  } = options;
-
+export function useWebSocket({ debug = false }: UseWebSocketOptions = {}) {
   const { data: session } = useSession();
-  const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [lastMessage, setLastMessage] = useState<any>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [lastPing, setLastPing] = useState<Date | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const { toast } = useToast();
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 5;
+  const reconnectIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Utiliser useRef pour éviter les re-renders
-  const reconnectCountRef = useRef(0);
-  const isConnectingRef = useRef(false);
+  // Fonction pour initialiser la connexion WebSocket
+  const initializeSocket = useCallback(() => {
+    if (socketRef.current) {
+      if (debug)
+        console.log(
+          "Socket déjà initialisé, fermeture de l'ancienne connexion"
+        );
+      socketRef.current.disconnect();
+    }
 
-  const log = useCallback(
-    (message: string, ...args: any[]) => {
-      if (debug) {
-        console.log(`[WebSocket] ${message}`, ...args);
+    if (debug) console.log("Initialisation de la connexion WebSocket");
+
+    try {
+      // Disable WebSocket connection in development if server is not running
+      if (process.env.NODE_ENV === "development" && connectionError) {
+        if (debug)
+          console.log(
+            "WebSocket désactivé en développement en raison d'erreurs précédentes"
+          );
+        return () => {};
+      }
+
+      socketRef.current = io({
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000,
+        autoConnect: true,
+        withCredentials: true,
+      });
+
+      // Gestionnaires d'événements de base
+      socketRef.current.on("connect", handleConnect);
+      socketRef.current.on("disconnect", handleDisconnect);
+      socketRef.current.on("connect_error", handleConnectError);
+      socketRef.current.on("error", handleError);
+      socketRef.current.on("reconnect_attempt", handleReconnectAttempt);
+      socketRef.current.on("reconnect_failed", handleReconnectFailed);
+
+      // Gestionnaires d'événements spécifiques
+      socketRef.current.on("notification", handleNotification);
+      socketRef.current.on("status-updated", handleStatusUpdate);
+      socketRef.current.on("authenticated", handleAuthenticated);
+      socketRef.current.on("pong", handlePong);
+
+      return () => {
+        if (socketRef.current) {
+          if (debug) console.log("Nettoyage de la connexion WebSocket");
+          socketRef.current.off("connect", handleConnect);
+          socketRef.current.off("disconnect", handleDisconnect);
+          socketRef.current.off("connect_error", handleConnectError);
+          socketRef.current.off("error", handleError);
+          socketRef.current.off("reconnect_attempt", handleReconnectAttempt);
+          socketRef.current.off("reconnect_failed", handleReconnectFailed);
+          socketRef.current.off("notification", handleNotification);
+          socketRef.current.off("status-updated", handleStatusUpdate);
+          socketRef.current.off("authenticated", handleAuthenticated);
+          socketRef.current.off("pong", handlePong);
+          socketRef.current.disconnect();
+          socketRef.current = null;
+        }
+
+        if (reconnectIntervalRef.current) {
+          clearInterval(reconnectIntervalRef.current);
+          reconnectIntervalRef.current = null;
+        }
+      };
+    } catch (error) {
+      console.error("Erreur lors de l'initialisation du socket:", error);
+      setConnectionError("Erreur d'initialisation");
+      return () => {};
+    }
+  }, [debug, connectionError]);
+
+  // Gestionnaires d'événements
+  const handleConnect = useCallback(() => {
+    if (debug) console.log("WebSocket connecté!");
+    setIsConnected(true);
+    setConnectionError(null);
+    reconnectAttemptsRef.current = 0;
+
+    // Authentifier l'utilisateur après la connexion
+    if (session?.user?.id) {
+      authenticateUser();
+    }
+  }, [session, debug]);
+
+  const handleDisconnect = useCallback(
+    (reason: string) => {
+      if (debug) console.log(`WebSocket déconnecté: ${reason}`);
+      setIsConnected(false);
+      setIsAuthenticated(false);
+
+      // Tenter de se reconnecter automatiquement
+      if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+        if (!reconnectIntervalRef.current) {
+          reconnectIntervalRef.current = setInterval(() => {
+            if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+              if (reconnectIntervalRef.current) {
+                clearInterval(reconnectIntervalRef.current);
+                reconnectIntervalRef.current = null;
+              }
+              setConnectionError(
+                "Nombre maximum de tentatives de reconnexion atteint"
+              );
+              return;
+            }
+
+            reconnectAttemptsRef.current++;
+            if (debug)
+              console.log(
+                `Tentative de reconnexion WebSocket (${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`
+              );
+
+            if (socketRef.current) {
+              socketRef.current.connect();
+            } else {
+              initializeSocket();
+            }
+          }, 5000); // Essayer toutes les 5 secondes
+        }
+      } else {
+        if (debug)
+          console.log("Nombre maximum de tentatives de reconnexion atteint");
+        setConnectionError(
+          "Nombre maximum de tentatives de reconnexion atteint"
+        );
+        if (reconnectIntervalRef.current) {
+          clearInterval(reconnectIntervalRef.current);
+          reconnectIntervalRef.current = null;
+        }
+      }
+    },
+    [initializeSocket, debug]
+  );
+
+  const handleConnectError = useCallback((error: Error) => {
+    console.error("Erreur de connexion WebSocket:", error.message);
+    setConnectionError(error.message);
+
+    // In development, show a more helpful message
+    if (process.env.NODE_ENV === "development") {
+      console.log(
+        "⚠️ Conseil de développement: Assurez-vous que le serveur Socket.IO est en cours d'exécution."
+      );
+      console.log(
+        "👉 Exécutez 'node server.js' pour démarrer le serveur WebSocket."
+      );
+    }
+  }, []);
+
+  const handleError = useCallback((error: Error) => {
+    console.error("Erreur WebSocket:", error.message);
+    setConnectionError(error.message);
+  }, []);
+
+  const handleReconnectAttempt = useCallback(
+    (attempt: number) => {
+      if (debug)
+        console.log(`Tentative de reconnexion WebSocket #${attempt}...`);
+    },
+    [debug]
+  );
+
+  const handleReconnectFailed = useCallback(() => {
+    console.error(
+      "Échec de la reconnexion WebSocket après plusieurs tentatives"
+    );
+    setConnectionError("Échec de la reconnexion après plusieurs tentatives");
+
+    // Only show toast in production to avoid annoying developers
+    if (process.env.NODE_ENV === "production") {
+      toast({
+        title: "Problème de connexion",
+        description:
+          "Impossible de se connecter au serveur de notifications. Veuillez rafraîchir la page.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
+  const handleNotification = useCallback(
+    (notification: any) => {
+      if (debug) console.log("Notification WebSocket reçue:", notification);
+
+      // Créer un événement personnalisé pour la notification
+      const event = new CustomEvent("websocket-notification", {
+        detail: notification,
+      });
+
+      // Déclencher l'événement
+      window.dispatchEvent(event);
+
+      // Afficher un toast pour les notifications importantes
+      if (notification.showToast) {
+        toast({
+          title: notification.title,
+          description: notification.message,
+          variant: notification.type === "error" ? "destructive" : "default",
+        });
+      }
+    },
+    [toast, debug]
+  );
+
+  const handleStatusUpdate = useCallback(
+    (update: any) => {
+      if (debug) console.log("Mise à jour de statut WebSocket reçue:", update);
+
+      // Créer un événement personnalisé pour la mise à jour de statut
+      const event = new CustomEvent("competition-status-updated", {
+        detail: update,
+      });
+
+      // Déclencher l'événement
+      window.dispatchEvent(event);
+    },
+    [debug]
+  );
+
+  const handleAuthenticated = useCallback(
+    (response: { success: boolean; userId?: string; error?: string }) => {
+      if (response.success) {
+        if (debug)
+          console.log(
+            `WebSocket authentifié pour l'utilisateur: ${response.userId}`
+          );
+        setIsAuthenticated(true);
+
+        // Démarrer le ping périodique pour maintenir la connexion
+        startPingInterval();
+      } else {
+        console.error(
+          `Échec de l'authentification WebSocket: ${response.error}`
+        );
+        setIsAuthenticated(false);
+        setConnectionError(`Échec de l'authentification: ${response.error}`);
       }
     },
     [debug]
   );
 
-  const disconnect = useCallback(() => {
-    if (socket) {
-      log("🔌 Déconnexion du serveur WebSocket");
-      socket.disconnect();
-      setSocket(null);
-      setIsConnected(false);
-      isConnectingRef.current = false;
+  const handlePong = useCallback((data: { timestamp: Date }) => {
+    setLastPing(new Date(data.timestamp));
+  }, []);
+
+  // Fonction pour authentifier l'utilisateur
+  const authenticateUser = useCallback(() => {
+    if (!socketRef.current || !session?.user?.id) return;
+
+    if (debug)
+      console.log(
+        "Authentification WebSocket pour l'utilisateur:",
+        session.user.id
+      );
+    socketRef.current.emit("authenticate", {
+      userId: session.user.id,
+      role: session.user.role || "PARTICIPANT",
+    });
+  }, [session, debug]);
+
+  // Fonction pour rejoindre une room de compétition
+  const joinCompetition = useCallback(
+    (competitionId: string) => {
+      if (!socketRef.current || !isConnected) return;
+
+      if (debug)
+        console.log(`Rejoindre la room de la compétition: ${competitionId}`);
+      socketRef.current.emit("join-competition", competitionId);
+    },
+    [isConnected, debug]
+  );
+
+  // Fonction pour rejoindre une room d'organisateur
+  const joinOrganizerRoom = useCallback(() => {
+    if (!socketRef.current || !isConnected || !session?.user?.id) return;
+
+    if (debug)
+      console.log(`Rejoindre la room de l'organisateur: ${session.user.id}`);
+    socketRef.current.emit("join-organizer", session.user.id);
+  }, [isConnected, session, debug]);
+
+  // Fonction pour démarrer le ping périodique
+  const startPingInterval = useCallback(() => {
+    // Nettoyer l'intervalle existant si présent
+    if (reconnectIntervalRef.current) {
+      clearInterval(reconnectIntervalRef.current);
     }
-  }, [socket, log]);
 
-  const connect = useCallback(() => {
-    // Éviter les connexions multiples
-    if (socket || isConnectingRef.current) {
-      log("⚠️ Une connexion WebSocket existe déjà ou est en cours");
-      return;
-    }
+    // Créer un nouvel intervalle de ping
+    reconnectIntervalRef.current = setInterval(() => {
+      if (socketRef.current && isConnected) {
+        socketRef.current.emit("ping");
+      }
+    }, 30000); // Ping toutes les 30 secondes
+  }, [isConnected]);
 
-    // Vérifier si la session et l'utilisateur existent
-    if (!session?.user?.id || !session?.user?.role) {
-      log("⚠️ Session ou propriétés utilisateur manquantes pour WebSocket");
-      return;
-    }
-
-    isConnectingRef.current = true;
-
-    // Récupérer l'URL du socket depuis les variables d'environnement ou utiliser l'origine actuelle
-    const socketUrl =
-      process.env.NEXT_PUBLIC_SOCKET_URL || window.location.origin;
-
-    log(`🔄 Tentative de connexion WebSocket à ${socketUrl}`);
-    log(`👤 Utilisateur: ${session.user.id}, Rôle: ${session.user.role}`);
-
-    try {
-      // Créer une nouvelle connexion socket
-      const newSocket = io(socketUrl, {
-        query: {
-          userId: session.user.id,
-          userRole: session.user.role,
-        },
-        transports: ["websocket", "polling"],
-        reconnectionAttempts: 0, // Désactiver la reconnexion automatique de socket.io
-        timeout: 10000, // 10 secondes de timeout
-      });
-
-      // Gérer les événements de connexion
-      newSocket.on("connect", () => {
-        log("✅ Connecté au serveur WebSocket");
-        setIsConnected(true);
-        reconnectCountRef.current = 0; // Réinitialiser le compteur de reconnexion
-        isConnectingRef.current = false;
-      });
-
-      newSocket.on("disconnect", (reason) => {
-        log(`❌ Déconnecté du serveur WebSocket: ${reason}`);
-        setIsConnected(false);
-        isConnectingRef.current = false;
-
-        // Tenter de se reconnecter automatiquement si activé
-        if (autoReconnect && reconnectCountRef.current < reconnectAttempts) {
-          const delay = reconnectDelay * (reconnectCountRef.current + 1);
-          log(
-            `🔄 Tentative de reconnexion dans ${delay}ms (${
-              reconnectCountRef.current + 1
-            }/${reconnectAttempts})`
-          );
-
-          setTimeout(() => {
-            reconnectCountRef.current += 1;
-            connect();
-          }, delay);
-        }
-      });
-
-      newSocket.on("connect_error", (error) => {
-        log(
-          `❌ Erreur de connexion WebSocket: ${
-            error.message || "Erreur inconnue"
-          }`
-        );
-        isConnectingRef.current = false;
-
-        // Tenter de se reconnecter automatiquement si activé
-        if (autoReconnect && reconnectCountRef.current < reconnectAttempts) {
-          const delay = reconnectDelay * (reconnectCountRef.current + 1);
-          log(
-            `🔄 Tentative de reconnexion dans ${delay}ms (${
-              reconnectCountRef.current + 1
-            }/${reconnectAttempts})`
-          );
-
-          setTimeout(() => {
-            reconnectCountRef.current += 1;
-            connect();
-          }, delay);
-        }
-      });
-
-      // Gérer les messages entrants
-      newSocket.on("message", (data) => {
-        log("📩 Message WebSocket reçu:", data);
-        setLastMessage(data);
-      });
-
-      // Stocker la référence du socket
-      setSocket(newSocket);
-    } catch (error) {
-      log("❌ Erreur lors de la création de la connexion WebSocket:", error);
-      isConnectingRef.current = false;
-    }
-  }, [
-    session?.user?.id,
-    session?.user?.role,
-    autoReconnect,
-    reconnectAttempts,
-    reconnectDelay,
-    log,
-  ]);
-
-  // Établir la connexion WebSocket lorsque la session est disponible
+  // Initialiser la connexion WebSocket au chargement du composant
   useEffect(() => {
-    // Ne se connecter que si on a une session valide et qu'on n'est pas déjà connecté
-    if (
-      session?.user?.id &&
-      session?.user?.role &&
-      !socket &&
-      !isConnectingRef.current
-    ) {
-      connect();
-    }
+    const cleanup = initializeSocket();
+    return cleanup;
+  }, [initializeSocket]);
 
-    // Nettoyer la connexion lors du démontage
+  // Authentifier l'utilisateur lorsque la session change
+  useEffect(() => {
+    if (isConnected && session?.user?.id) {
+      authenticateUser();
+
+      // Si l'utilisateur est un organisateur, rejoindre sa room
+      if (session.user.role === "ORGANIZER") {
+        joinOrganizerRoom();
+      }
+    }
+  }, [isConnected, session, authenticateUser, joinOrganizerRoom]);
+
+  // Nettoyer l'intervalle de ping à la déconnexion
+  useEffect(() => {
     return () => {
-      if (socket) {
-        log("🧹 Nettoyage de la connexion WebSocket");
-        socket.disconnect();
-        setSocket(null);
-        setIsConnected(false);
-        isConnectingRef.current = false;
+      if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current);
+        reconnectIntervalRef.current = null;
       }
     };
-  }, [session?.user?.id, session?.user?.role]); // Dépendances stables
+  }, []);
 
-  // Fonction pour envoyer un message
-  const sendMessage = useCallback(
-    (event: string, data: any) => {
-      if (socket && isConnected) {
-        log(`📤 Envoi d'un message WebSocket: ${event}`, data);
-        socket.emit(event, data);
+  // Fonction pour émettre un événement
+  const emit = useCallback(
+    (event: string, data?: any) => {
+      if (socketRef.current && isConnected) {
+        socketRef.current.emit(event, data);
         return true;
-      } else {
-        log("⚠️ Impossible d'envoyer le message: non connecté");
-        return false;
       }
+      return false;
     },
-    [socket, isConnected, log]
+    [isConnected]
+  );
+
+  // Fonction pour écouter un événement
+  const on = useCallback(
+    (event: string, callback: (...args: any[]) => void) => {
+      if (socketRef.current) {
+        socketRef.current.on(event, callback);
+        return true;
+      }
+      return false;
+    },
+    []
+  );
+
+  // Fonction pour arrêter d'écouter un événement
+  const off = useCallback(
+    (event: string, callback?: (...args: any[]) => void) => {
+      if (socketRef.current) {
+        socketRef.current.off(event, callback);
+        return true;
+      }
+      return false;
+    },
+    []
   );
 
   return {
-    socket,
     isConnected,
-    lastMessage,
-    sendMessage,
-    connect,
-    disconnect,
+    isAuthenticated,
+    lastPing,
+    connectionError,
+    joinCompetition,
+    joinOrganizerRoom,
+    emit,
+    on,
+    off,
   };
 }

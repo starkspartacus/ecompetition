@@ -104,6 +104,19 @@ export async function createCompetitionWithoutTransaction(
       )
     );
 
+    // Ensure rules is properly formatted as JSON if it's an array
+    if (Array.isArray(competitionData.rules)) {
+      competitionData.rules = competitionData.rules;
+    } else if (typeof competitionData.rules === "string") {
+      try {
+        // Try to parse if it's a JSON string
+        competitionData.rules = JSON.parse(competitionData.rules);
+      } catch (e) {
+        // If it's not valid JSON, keep it as a string
+        console.log("Rules is not valid JSON, keeping as string");
+      }
+    }
+
     // Créer la compétition sans transaction
     const result = await prismaNoTransactions.competition.create({
       data: {
@@ -200,14 +213,29 @@ export async function getCompetitionByUniqueCode(uniqueCode: string) {
 }
 
 // Fonction pour mettre à jour les règles d'une compétition
-export async function updateCompetitionRules(id: string, rules: string[]) {
+export async function updateCompetitionRules(
+  id: string,
+  rules: string[] | string
+) {
   try {
+    // Ensure rules is properly formatted as JSON if it's an array
+    let formattedRules = rules;
+    if (typeof rules === "string") {
+      try {
+        // Try to parse if it's a JSON string
+        formattedRules = JSON.parse(rules);
+      } catch (e) {
+        // If it's not valid JSON, keep it as a string
+        console.log("Rules is not valid JSON, keeping as string");
+      }
+    }
+
     return await prismaNoTransactions.competition.update({
       where: {
         id,
       },
       data: {
-        rules: rules.join("\n"),
+        rules: formattedRules,
       },
     });
   } catch (error) {

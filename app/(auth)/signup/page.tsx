@@ -3,12 +3,38 @@
 import type React from "react";
 
 import { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { z } from "zod";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Loader2,
+  Upload,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  User,
+  Mail,
+  Lock,
+  Calendar,
+  Phone,
+  MapPin,
+  Home,
+  Users,
+  ImageIcon,
+  Trophy,
+} from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Button } from "@/components/ui/button";
+import * as z from "zod";
 import {
   Form,
   FormControl,
@@ -16,9 +42,7 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-  FormDescription,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -26,400 +50,342 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { COMPETITION_CATEGORIES } from "@/constants/categories";
-import { uploadImage } from "@/lib/blob";
-import { toast } from "@/components/ui/use-toast";
 import { CountrySelector } from "@/components/country-selector";
+import { CitySelector } from "@/components/city-selector";
+import { CommuneSelector } from "@/components/commune-selector";
 import { PhoneInput } from "@/components/phone-input";
-import { LocationSelector } from "@/components/location-selector";
-import { AuthBackground } from "@/components/auth-background";
-import type { Country } from "@/constants/countries";
-import {
-  Check,
-  ChevronRight,
-  User,
-  MapPin,
-  Camera,
-  Trophy,
-  Mail,
-  Phone,
-  Calendar,
-  Lock,
-  AlertCircle,
-  CheckCircle2,
-} from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  GoogleButton,
-  SocialAuthDivider,
-} from "@/components/social-auth-buttons";
-import { VILLES } from "@/constants/villes";
+import { uploadImage, getPlaceholderImage } from "@/lib/blob";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { COMPETITION_CATEGORIES } from "@/constants/categories";
+import { cn } from "@/lib/utils";
+import { COUNTRIES, getCountryByCode } from "@/constants/countries";
+import { CITIES } from "@/constants/villes";
 import { COMMUNES } from "@/constants/communes";
 
-// Schéma de validation amélioré avec des messages d'erreur plus descriptifs
-const signupSchema = z.object({
-  firstName: z
-    .string()
-    .min(2, "Le prénom doit contenir au moins 2 caractères")
-    .max(50, "Le prénom ne peut pas dépasser 50 caractères"),
-  lastName: z
-    .string()
-    .min(2, "Le nom doit contenir au moins 2 caractères")
-    .max(50, "Le nom ne peut pas dépasser 50 caractères"),
-  email: z.string().email("Format d'email invalide. Exemple: nom@domaine.com"),
-  password: z
-    .string()
-    .min(8, "Le mot de passe doit contenir au moins 8 caractères")
-    .regex(
-      /[A-Z]/,
-      "Le mot de passe doit contenir au moins une lettre majuscule"
-    )
-    .regex(
-      /[a-z]/,
-      "Le mot de passe doit contenir au moins une lettre minuscule"
-    )
-    .regex(/[0-9]/, "Le mot de passe doit contenir au moins un chiffre"),
-  dateOfBirth: z.string().refine((date) => {
-    const birthDate = new Date(date);
-    const today = new Date();
-    const age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-
-    if (
-      monthDiff < 0 ||
-      (monthDiff === 0 && today.getDate() < birthDate.getDate())
-    ) {
-      return age - 1 >= 13;
+// Schéma de validation simplifié
+const formSchema = z
+  .object({
+    firstName: z
+      .string()
+      .min(2, "Le prénom doit contenir au moins 2 caractères."),
+    lastName: z.string().min(2, "Le nom doit contenir au moins 2 caractères."),
+    email: z.string().email("Veuillez entrer une adresse email valide."),
+    password: z
+      .string()
+      .min(8, "Le mot de passe doit contenir au moins 8 caractères."),
+    dateOfBirth: z.string().optional(),
+    country: z.string().optional(),
+    city: z.string().optional(),
+    commune: z.string().optional(),
+    address: z.string().optional(),
+    phoneNumber: z.string().optional(),
+    phoneCountryCode: z.string().optional(),
+    photoUrl: z.string().nullable().optional(),
+    role: z.enum(["PARTICIPANT", "ORGANIZER"]),
+    competitionCategory: z.string().optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.role === "ORGANIZER" && !data.competitionCategory) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "Veuillez sélectionner une catégorie de compétition.",
+      path: ["competitionCategory"],
     }
+  );
 
-    return age >= 13;
-  }, "Vous devez avoir au moins 13 ans pour vous inscrire"),
-  countryCode: z.string().min(1, "Veuillez sélectionner un pays"),
-  phoneNumber: z
-    .string()
-    .optional()
-    .refine((val) => {
-      // Si la valeur est vide ou undefined, la validation passe
-      if (!val) return true;
-      // Sinon, vérifier le format
-      return /^[0-9]{6,15}$/.test(val.replace(/\s+/g, ""));
-    }, "Format de numéro de téléphone invalide"),
-  city: z.string().min(1, "Veuillez sélectionner une ville"),
-  commune: z.string().optional(),
-  address: z
-    .string()
-    .min(5, "L'adresse doit contenir au moins 5 caractères")
-    .max(100, "L'adresse ne peut pas dépasser 100 caractères"),
-  photo: z.any().optional(),
-  role: z.enum(["ORGANIZER", "PARTICIPANT"]),
-  competitionCategory: z.string().optional(),
-});
+type FormValues = z.infer<typeof formSchema>;
 
-type FormData = z.infer<typeof signupSchema>;
+// Étapes du formulaire
+const STEPS = [
+  {
+    id: "account",
+    title: "Compte",
+    description: "Informations de base",
+    color: "from-blue-500 to-indigo-600",
+    bgColor: "bg-blue-50 dark:bg-blue-950/20",
+    textColor: "text-blue-600 dark:text-blue-400",
+    borderColor: "border-blue-200 dark:border-blue-800",
+    icon: User,
+  },
+  {
+    id: "personal",
+    title: "Personnel",
+    description: "Informations personnelles",
+    color: "from-emerald-500 to-teal-600",
+    bgColor: "bg-emerald-50 dark:bg-emerald-950/20",
+    textColor: "text-emerald-600 dark:text-emerald-400",
+    borderColor: "border-emerald-200 dark:border-emerald-800",
+    icon: Calendar,
+  },
+  {
+    id: "address",
+    title: "Adresse",
+    description: "Localisation",
+    color: "from-amber-500 to-orange-600",
+    bgColor: "bg-amber-50 dark:bg-amber-950/20",
+    textColor: "text-amber-600 dark:text-amber-400",
+    borderColor: "border-amber-200 dark:border-amber-800",
+    icon: MapPin,
+  },
+  {
+    id: "role",
+    title: "Rôle",
+    description: "Type d'utilisateur",
+    color: "from-purple-500 to-violet-600",
+    bgColor: "bg-purple-50 dark:bg-purple-950/20",
+    textColor: "text-purple-600 dark:text-purple-400",
+    borderColor: "border-purple-200 dark:border-purple-800",
+    icon: Users,
+  },
+  {
+    id: "photo",
+    title: "Photo",
+    description: "Photo de profil",
+    color: "from-rose-500 to-pink-600",
+    bgColor: "bg-rose-50 dark:bg-rose-950/20",
+    textColor: "text-rose-600 dark:text-rose-400",
+    borderColor: "border-rose-200 dark:border-rose-800",
+    icon: ImageIcon,
+  },
+];
 
-// Fonction pour calculer la force du mot de passe
-function calculatePasswordStrength(password: string): number {
-  if (!password) return 0;
-
-  let strength = 0;
-
-  // Longueur
-  if (password.length >= 8) strength += 20;
-  if (password.length >= 12) strength += 10;
-
-  // Complexité
-  if (/[A-Z]/.test(password)) strength += 20; // Majuscules
-  if (/[a-z]/.test(password)) strength += 20; // Minuscules
-  if (/[0-9]/.test(password)) strength += 20; // Chiffres
-  if (/[^A-Za-z0-9]/.test(password)) strength += 10; // Caractères spéciaux
-
-  return Math.min(strength, 100);
-}
-
-// Fonction pour obtenir la couleur de la barre de progression
-function getPasswordStrengthColor(strength: number): string {
-  if (strength < 40) return "bg-red-500";
-  if (strength < 70) return "bg-yellow-500";
-  return "bg-green-500";
-}
-
-// Fonction pour obtenir le texte de la force du mot de passe
-function getPasswordStrengthText(strength: number): string {
-  if (strength < 40) return "Faible";
-  if (strength < 70) return "Moyen";
-  return "Fort";
-}
-
-// Fonction utilitaire pour convertir le code pays en clé de VILLES
-function getVillesKey(countryCode: string): keyof typeof VILLES | undefined {
-  if (!countryCode) return undefined;
-  switch (countryCode.toUpperCase()) {
-    case "FR":
-      return "france";
-    case "SN":
-      return "senegal";
-    case "CI":
-      return "cote_ivoire";
-    default:
-      return undefined;
-  }
-}
-
-export default function SignupPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const defaultRole =
-    searchParams.get("role") === "organizer" ? "ORGANIZER" : "PARTICIPANT";
-
+export default function SignUpPage() {
+  const [step, setStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedCountry, setSelectedCountry] = useState<Country | undefined>();
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [authMethod, setAuthMethod] = useState<"email" | "phone" | "google">(
-    "email"
-  );
-  const [currentStep, setCurrentStep] = useState(1);
-  const [dialCode, setDialCode] = useState("");
-  const [passwordStrength, setPasswordStrength] = useState(0);
-  const [formProgress, setFormProgress] = useState({
-    step1: 0,
-    step2: 0,
-    step3: 0,
-  });
+  const [registrationComplete, setRegistrationComplete] = useState(false);
+  const router = useRouter();
+  const { toast } = useToast();
 
-  const form = useForm<FormData>({
-    resolver: zodResolver(signupSchema),
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
     defaultValues: {
       firstName: "",
       lastName: "",
       email: "",
       password: "",
       dateOfBirth: "",
-      countryCode: "",
-      phoneNumber: "",
+      country: "",
       city: "",
       commune: "",
       address: "",
-      role: defaultRole,
-      competitionCategory: defaultRole === "ORGANIZER" ? "FOOTBALL" : undefined,
+      phoneNumber: "",
+      phoneCountryCode: "FR",
+      photoUrl: null,
+      role: "PARTICIPANT",
+      competitionCategory: "",
     },
-    mode: "onChange", // Active la validation en temps réel
+    mode: "onTouched",
   });
 
-  // Observer les valeurs du formulaire pour mettre à jour la progression
-  const watchedValues = form.watch();
+  const watchRole = form.watch("role");
+  const watchCountry = form.watch("country");
+  const watchCity = form.watch("city");
+  const watchPhoneCountryCode = form.watch("phoneCountryCode");
+  const currentStep = STEPS[step];
 
-  // Mettre à jour la force du mot de passe
+  // Mettre à jour le code pays du téléphone lorsque le pays change
   useEffect(() => {
-    const password = form.watch("password");
-    setPasswordStrength(calculatePasswordStrength(password));
-  }, [form.watch("password")]);
-
-  // Calculer la progression du formulaire
-  useEffect(() => {
-    // Utilisons une fonction pour calculer la progression
-    const calculateProgress = () => {
-      // Étape 1
-      const step1Fields = [
-        "firstName",
-        "lastName",
-        "email",
-        "password",
-        "dateOfBirth",
-      ];
-      const step1Valid = step1Fields.filter((field) => {
-        const value = form.getValues(field as keyof FormData);
-        return value && !form.formState.errors[field as keyof FormData];
-      }).length;
-
-      // Étape 2
-      const step2Fields = ["countryCode", "city", "address"];
-      const step2Valid = step2Fields.filter((field) => {
-        const value = form.getValues(field as keyof FormData);
-        return value && !form.formState.errors[field as keyof FormData];
-      }).length;
-
-      // Étape 3
-      const step3Fields = ["role"];
-      const role = form.getValues("role");
-      if (role === "ORGANIZER") {
-        step3Fields.push("competitionCategory");
+    if (watchCountry) {
+      // Trouver le pays correspondant dans la liste des pays
+      const country = COUNTRIES.find((c) => c.code === watchCountry);
+      if (country) {
+        form.setValue("phoneCountryCode", country.code);
       }
-      const step3Valid = step3Fields.filter((field) => {
-        const value = form.getValues(field as keyof FormData);
-        return value && !form.formState.errors[field as keyof FormData];
-      }).length;
+    }
+  }, [watchCountry, form]);
 
-      return {
-        step1: Math.round((step1Valid / step1Fields.length) * 100),
-        step2: Math.round((step2Valid / step2Fields.length) * 100),
-        step3: Math.round((step3Valid / step3Fields.length) * 100),
-      };
-    };
+  // Réinitialiser la ville et la commune quand le pays change
+  useEffect(() => {
+    if (watchCountry) {
+      const currentCity = form.getValues("city");
+      const cityExists = CITIES.some(
+        (city) => city.code === currentCity && city.countryCode === watchCountry
+      );
+      if (!cityExists) {
+        form.setValue("city", "");
+        form.setValue("commune", "");
+      }
+    }
+  }, [watchCountry, form]);
 
-    // Mettre à jour la progression
-    const newProgress = calculateProgress();
-    setFormProgress(newProgress);
+  // Réinitialiser la commune quand la ville change
+  useEffect(() => {
+    if (watchCity) {
+      const currentCommune = form.getValues("commune");
+      const communeExists = COMMUNES.some(
+        (commune) =>
+          commune.code === currentCommune && commune.cityCode === watchCity
+      );
+      if (!communeExists) {
+        form.setValue("commune", "");
+      }
+    }
+  }, [watchCity, form]);
 
-    // Dépendances spécifiques au lieu de watchedValues
-  }, [
-    form.formState.errors,
-    form.formState.touchedFields,
-    form.getValues("role"),
-  ]);
-
+  // Gérer le changement de photo
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      // Vérifier la taille du fichier (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: "Fichier trop volumineux",
-          description: "La taille de l'image ne doit pas dépasser 5MB",
-          variant: "destructive",
-        });
-        return;
-      }
+    if (!file) return;
 
-      // Vérifier le type de fichier
-      if (!file.type.startsWith("image/")) {
-        toast({
-          title: "Type de fichier non supporté",
-          description: "Veuillez sélectionner une image (JPG, PNG, etc.)",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      setPhotoFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: "Type de fichier non supporté",
+        description: "Veuillez sélectionner une image (JPG, PNG, etc.)",
+        variant: "destructive",
+      });
+      return;
     }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "Fichier trop volumineux",
+        description: "La taille de l'image ne doit pas dépasser 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPhotoFile(file);
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPhotoPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
-  const handleCountryChange = (country: Country) => {
-    setSelectedCountry(country);
-    setDialCode(country.dialCode);
+  // Gérer le changement de code pays pour le téléphone
+  const handlePhoneCountryCodeChange = (code: string) => {
+    form.setValue("phoneCountryCode", code);
   };
 
-  const nextStep = async () => {
-    if (currentStep === 1) {
-      const step1Fields = [
-        "firstName",
-        "lastName",
-        "email",
-        "password",
-        "dateOfBirth",
-      ];
-      const step1Valid = await Promise.all(
-        step1Fields.map((field) => form.trigger(field as keyof FormData))
-      );
+  // Vérifier si l'étape actuelle est valide
+  const isStepValid = async () => {
+    let fieldsToValidate: string[] = [];
 
-      if (step1Valid.every(Boolean)) {
-        setCurrentStep(2);
+    switch (step) {
+      case 0:
+        fieldsToValidate = ["firstName", "lastName", "email", "password"];
+        break;
+      case 1:
+        fieldsToValidate = ["dateOfBirth", "phoneNumber"];
+        break;
+      case 2:
+        fieldsToValidate = ["country", "city", "commune", "address"];
+        break;
+      case 3:
+        fieldsToValidate = ["role"];
+        if (watchRole === "ORGANIZER") {
+          fieldsToValidate.push("competitionCategory");
+        }
+        break;
+      case 4:
+        return true; // L'étape de la photo est toujours valide
+      default:
+        return false;
+    }
+
+    const result = await form.trigger(fieldsToValidate as any);
+    return result;
+  };
+
+  // Passer à l'étape suivante
+  const goToNextStep = async () => {
+    const isValid = await isStepValid();
+
+    if (isValid) {
+      if (step < STEPS.length - 1) {
+        setStep((prev) => prev + 1);
+        window.scrollTo(0, 0);
       } else {
-        // Mettre en évidence les champs avec erreur
-        toast({
-          title: "Formulaire incomplet",
-          description: "Veuillez corriger les erreurs avant de continuer",
-          variant: "destructive",
-        });
+        await handleSubmit();
       }
-    } else if (currentStep === 2) {
-      const step2Fields = ["countryCode", "city", "address"];
-      const step2Valid = await Promise.all(
-        step2Fields.map((field) => form.trigger(field as keyof FormData))
-      );
-
-      if (step2Valid.every(Boolean)) {
-        setCurrentStep(3);
-      } else {
-        toast({
-          title: "Formulaire incomplet",
-          description: "Veuillez corriger les erreurs avant de continuer",
-          variant: "destructive",
-        });
-      }
+    } else {
+      toast({
+        title: "Formulaire incomplet",
+        description: "Veuillez remplir tous les champs obligatoires.",
+        variant: "destructive",
+      });
     }
   };
 
-  const prevStep = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+  // Revenir à l'étape précédente
+  const goToPreviousStep = () => {
+    if (step > 0) {
+      setStep((prev) => prev - 1);
+      window.scrollTo(0, 0);
     }
   };
 
-  const onSubmit = async (values: FormData) => {
+  // Soumettre le formulaire
+  const handleSubmit = async () => {
+    setIsLoading(true);
+
     try {
-      setIsLoading(true);
+      const values = form.getValues();
 
-      // Upload photo if provided
-      let photoUrl = null;
+      // Télécharger la photo si elle existe
+      let photoUrl = values.photoUrl;
       if (photoFile) {
         try {
           photoUrl = await uploadImage(photoFile);
         } catch (error) {
+          console.error("Erreur lors du téléchargement de la photo:", error);
+          photoUrl = getPlaceholderImage(300, 300, "Photo de profil");
           toast({
-            title: "Erreur",
+            title: "Avertissement",
             description:
-              "Impossible de télécharger l'image. L'inscription continuera sans photo.",
-            variant: "destructive",
+              "Impossible de télécharger la photo. Une image par défaut sera utilisée.",
+            variant: "warning",
           });
-          // Continue without photo
         }
       }
 
-      // Format phone number with country code
-      const formattedPhoneNumber = values.phoneNumber
-        ? `${dialCode}${values.phoneNumber.replace(/^0+/, "")}`
-        : undefined;
+      // Préparer les données à envoyer
+      const formData = {
+        ...values,
+        photoUrl,
+      };
 
-      // Create user
+      // Créer un nouvel objet sans phoneCountryCode au lieu de le supprimer
+      const { phoneCountryCode, ...dataToSend } = formData;
+
       const response = await fetch("/api/auth/signup", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          firstName: values.firstName,
-          lastName: values.lastName,
-          email: values.email,
-          password: values.password,
-          dateOfBirth: values.dateOfBirth,
-          country: values.countryCode,
-          city: values.city,
-          commune: values.commune,
-          address: values.address,
-          phoneNumber: formattedPhoneNumber,
-          photoUrl,
-          role: values.role,
-          competitionCategory: values.competitionCategory,
-        }),
+        body: JSON.stringify(dataToSend),
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(
-          error.message || "Une erreur est survenue lors de l'inscription"
-        );
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok) {
+        setRegistrationComplete(true);
+        setTimeout(() => {
+          router.push("/signin");
+        }, 3000);
+      } else {
+        toast({
+          title: "Échec de l'inscription",
+          description:
+            data.message || "Une erreur est survenue lors de l'inscription.",
+          variant: "destructive",
+        });
       }
-
-      toast({
-        title: "Inscription réussie",
-        description: "Vous pouvez maintenant vous connecter",
-      });
-
-      router.push("/signin");
     } catch (error: any) {
+      console.error("Erreur lors de l'inscription:", error);
       toast({
-        title: "Erreur",
+        title: "Échec de l'inscription",
         description:
-          error.message || "Une erreur est survenue lors de l'inscription",
+          error.message ||
+          "Une erreur inattendue est survenue. Veuillez réessayer.",
         variant: "destructive",
       });
     } finally {
@@ -427,866 +393,656 @@ export default function SignupPage() {
     }
   };
 
-  const role = form.watch("role");
-  const countryCode = form.watch("countryCode");
-  const city = form.watch("city");
-  const commune = form.watch("commune");
+  // Obtenir les noms pour l'affichage
+  const getLocationNames = () => {
+    const country = COUNTRIES.find((c) => c.code === watchCountry);
+    const city = CITIES.find((c) => c.code === watchCity);
+    const commune = COMMUNES.find((c) => c.code === form.getValues("commune"));
 
-  const stepVariants = {
-    hidden: { opacity: 0, x: 20 },
-    visible: { opacity: 1, x: 0, transition: { duration: 0.5 } },
-    exit: { opacity: 0, x: -20, transition: { duration: 0.3 } },
+    return {
+      countryName: country?.name || "",
+      cityName: city?.name || "",
+      communeName: commune?.name || "",
+    };
   };
 
-  // Fonction pour vérifier si un champ est valide
-  const isFieldValid = (fieldName: keyof FormData) => {
-    const value = form.getValues(fieldName);
-    return value && !form.formState.errors[fieldName];
-  };
-
-  // Composant pour afficher l'état de validation d'un champ
-  const ValidationStatus = ({ fieldName }: { fieldName: keyof FormData }) => {
-    const value = form.getValues(fieldName);
-    const error = form.formState.errors[fieldName];
-    const touched = form.formState.touchedFields[fieldName];
-
-    if (!value || !touched) return null;
-
-    return error ? (
-      <AlertCircle className="h-5 w-5 text-red-500 absolute right-3 top-1/2 -translate-y-1/2" />
-    ) : (
-      <CheckCircle2 className="h-5 w-5 text-green-500 absolute right-3 top-1/2 -translate-y-1/2" />
-    );
-  };
-
-  return (
-    <AuthBackground variant="signup">
-      <div className="container max-w-6xl flex-1 flex items-center justify-center py-12">
-        <Card className="w-full max-w-4xl shadow-xl bg-white/90 dark:bg-gray-900/90 backdrop-blur-md border-primary/10">
-          <CardContent className="p-0">
-            <div className="grid md:grid-cols-5">
-              {/* Sidebar with steps */}
-              <div className="hidden md:flex flex-col bg-gradient-to-br from-blue-600 to-indigo-700 text-white p-6 rounded-l-lg">
-                <div className="text-xl font-bold mb-8 flex items-center gap-2">
-                  <Trophy className="h-6 w-6" />
-                  e-compétition
-                </div>
-                <div className="space-y-6 flex-1">
-                  <div
-                    className={`flex items-center space-x-3 ${
-                      currentStep >= 1 ? "text-white" : "text-white/60"
-                    }`}
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        currentStep >= 1
-                          ? "bg-white text-blue-600"
-                          : "bg-white/20 text-white"
-                      }`}
-                    >
-                      {currentStep > 1 ? <Check className="h-5 w-5" /> : "1"}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium">Informations personnelles</p>
-                      <p className="text-xs opacity-80">
-                        Identité et connexion
-                      </p>
-                      <Progress
-                        value={formProgress.step1}
-                        className="h-1 mt-1 bg-white/20"
-                      />
-                    </div>
-                  </div>
-
-                  <div
-                    className={`flex items-center space-x-3 ${
-                      currentStep >= 2 ? "text-white" : "text-white/60"
-                    }`}
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        currentStep >= 2
-                          ? "bg-white text-blue-600"
-                          : "bg-white/20 text-white"
-                      }`}
-                    >
-                      {currentStep > 2 ? <Check className="h-5 w-5" /> : "2"}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium">Localisation</p>
-                      <p className="text-xs opacity-80">Pays et adresse</p>
-                      <Progress
-                        value={formProgress.step2}
-                        className="h-1 mt-1 bg-white/20"
-                      />
-                    </div>
-                  </div>
-
-                  <div
-                    className={`flex items-center space-x-3 ${
-                      currentStep >= 3 ? "text-white" : "text-white/60"
-                    }`}
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        currentStep >= 3
-                          ? "bg-white text-blue-600"
-                          : "bg-white/20 text-white"
-                      }`}
-                    >
-                      {currentStep > 3 ? <Check className="h-5 w-5" /> : "3"}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium">Profil</p>
-                      <p className="text-xs opacity-80">Photo et préférences</p>
-                      <Progress
-                        value={formProgress.step3}
-                        className="h-1 mt-1 bg-white/20"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-auto pt-6">
-                  <p className="text-sm opacity-80">Déjà inscrit ?</p>
-                  <Link
-                    href="/signin"
-                    className="text-sm font-medium underline"
-                  >
-                    Se connecter
-                  </Link>
-                </div>
-              </div>
-
-              {/* Form content */}
-              <div className="col-span-4 p-6">
-                <div className="flex justify-between items-center mb-6">
-                  <h1 className="text-2xl font-bold">Créer un compte</h1>
-                  <div className="md:hidden">
-                    <p className="text-sm text-muted-foreground">
-                      Étape {currentStep} sur 3
-                    </p>
-                  </div>
-                </div>
-
-                <Form {...form}>
-                  <form
-                    onSubmit={form.handleSubmit(onSubmit)}
-                    className="space-y-6"
-                  >
-                    {/* Step 1: Personal Information */}
-                    <AnimatePresence mode="wait">
-                      {currentStep === 1 && (
-                        <motion.div
-                          className="space-y-4"
-                          key="step1"
-                          initial="hidden"
-                          animate="visible"
-                          exit="exit"
-                          variants={stepVariants}
-                        >
-                          <div className="flex items-center gap-2 mb-4">
-                            <User className="h-5 w-5 text-primary" />
-                            <h2 className="text-lg font-medium">
-                              Informations personnelles
-                            </h2>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <FormField
-                              control={form.control}
-                              name="firstName"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="flex items-center gap-1.5">
-                                    <User className="h-4 w-4 text-primary" />
-                                    Prénom
-                                  </FormLabel>
-                                  <FormControl>
-                                    <div className="relative">
-                                      <Input
-                                        placeholder="John"
-                                        {...field}
-                                        className={`bg-white/80 backdrop-blur-sm transition-all ${
-                                          form.formState.errors.firstName
-                                            ? "border-red-500 focus-visible:ring-red-500"
-                                            : isFieldValid("firstName")
-                                            ? "border-green-500 focus-visible:ring-green-500"
-                                            : "border-primary/20 hover:border-primary/40"
-                                        }`}
-                                      />
-                                      <ValidationStatus fieldName="firstName" />
-                                    </div>
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="lastName"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="flex items-center gap-1.5">
-                                    <User className="h-4 w-4 text-primary" />
-                                    Nom
-                                  </FormLabel>
-                                  <FormControl>
-                                    <div className="relative">
-                                      <Input
-                                        placeholder="Doe"
-                                        {...field}
-                                        className={`bg-white/80 backdrop-blur-sm transition-all ${
-                                          form.formState.errors.lastName
-                                            ? "border-red-500 focus-visible:ring-red-500"
-                                            : isFieldValid("lastName")
-                                            ? "border-green-500 focus-visible:ring-green-500"
-                                            : "border-primary/20 hover:border-primary/40"
-                                        }`}
-                                      />
-                                      <ValidationStatus fieldName="lastName" />
-                                    </div>
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="email"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="flex items-center gap-1.5">
-                                  <Mail className="h-4 w-4 text-primary" />
-                                  Email
-                                </FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <Input
-                                      placeholder="john.doe@example.com"
-                                      type="email"
-                                      {...field}
-                                      className={`bg-white/80 backdrop-blur-sm transition-all ${
-                                        form.formState.errors.email
-                                          ? "border-red-500 focus-visible:ring-red-500"
-                                          : isFieldValid("email")
-                                          ? "border-green-500 focus-visible:ring-green-500"
-                                          : "border-primary/20 hover:border-primary/40"
-                                      }`}
-                                    />
-                                    <ValidationStatus fieldName="email" />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="password"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="flex items-center gap-1.5">
-                                  <Lock className="h-4 w-4 text-primary" />
-                                  Mot de passe
-                                </FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <Input
-                                      placeholder="********"
-                                      type="password"
-                                      {...field}
-                                      className={`bg-white/80 backdrop-blur-sm transition-all ${
-                                        form.formState.errors.password
-                                          ? "border-red-500 focus-visible:ring-red-500"
-                                          : isFieldValid("password")
-                                          ? "border-green-500 focus-visible:ring-green-500"
-                                          : "border-primary/20 hover:border-primary/40"
-                                      }`}
-                                    />
-                                    <ValidationStatus fieldName="password" />
-                                  </div>
-                                </FormControl>
-                                {field.value && (
-                                  <div className="mt-2">
-                                    <div className="flex justify-between items-center mb-1">
-                                      <span className="text-xs">
-                                        Force du mot de passe:
-                                      </span>
-                                      <span
-                                        className={`text-xs font-medium ${
-                                          passwordStrength < 40
-                                            ? "text-red-500"
-                                            : passwordStrength < 70
-                                            ? "text-yellow-500"
-                                            : "text-green-500"
-                                        }`}
-                                      >
-                                        {getPasswordStrengthText(
-                                          passwordStrength
-                                        )}
-                                      </span>
-                                    </div>
-                                    <Progress
-                                      value={passwordStrength}
-                                      className={`h-1 ${getPasswordStrengthColor(
-                                        passwordStrength
-                                      )}`}
-                                    />
-                                    <ul className="text-xs mt-2 space-y-1 text-muted-foreground">
-                                      <li
-                                        className={`flex items-center gap-1 ${
-                                          /[A-Z]/.test(field.value)
-                                            ? "text-green-500"
-                                            : ""
-                                        }`}
-                                      >
-                                        {/[A-Z]/.test(field.value) ? (
-                                          <CheckCircle2 className="h-3 w-3" />
-                                        ) : (
-                                          <AlertCircle className="h-3 w-3" />
-                                        )}
-                                        Au moins une lettre majuscule
-                                      </li>
-                                      <li
-                                        className={`flex items-center gap-1 ${
-                                          /[a-z]/.test(field.value)
-                                            ? "text-green-500"
-                                            : ""
-                                        }`}
-                                      >
-                                        {/[a-z]/.test(field.value) ? (
-                                          <CheckCircle2 className="h-3 w-3" />
-                                        ) : (
-                                          <AlertCircle className="h-3 w-3" />
-                                        )}
-                                        Au moins une lettre minuscule
-                                      </li>
-                                      <li
-                                        className={`flex items-center gap-1 ${
-                                          /[0-9]/.test(field.value)
-                                            ? "text-green-500"
-                                            : ""
-                                        }`}
-                                      >
-                                        {/[0-9]/.test(field.value) ? (
-                                          <CheckCircle2 className="h-3 w-3" />
-                                        ) : (
-                                          <AlertCircle className="h-3 w-3" />
-                                        )}
-                                        Au moins un chiffre
-                                      </li>
-                                      <li
-                                        className={`flex items-center gap-1 ${
-                                          field.value.length >= 8
-                                            ? "text-green-500"
-                                            : ""
-                                        }`}
-                                      >
-                                        {field.value.length >= 8 ? (
-                                          <CheckCircle2 className="h-3 w-3" />
-                                        ) : (
-                                          <AlertCircle className="h-3 w-3" />
-                                        )}
-                                        Au moins 8 caractères
-                                      </li>
-                                    </ul>
-                                  </div>
-                                )}
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="dateOfBirth"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="flex items-center gap-1.5">
-                                  <Calendar className="h-4 w-4 text-primary" />
-                                  Date de naissance
-                                </FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <Input
-                                      type="date"
-                                      {...field}
-                                      className={`bg-white/80 backdrop-blur-sm transition-all ${
-                                        form.formState.errors.dateOfBirth
-                                          ? "border-red-500 focus-visible:ring-red-500"
-                                          : isFieldValid("dateOfBirth")
-                                          ? "border-green-500 focus-visible:ring-green-500"
-                                          : "border-primary/20 hover:border-primary/40"
-                                      }`}
-                                    />
-                                    <ValidationStatus fieldName="dateOfBirth" />
-                                  </div>
-                                </FormControl>
-                                <FormDescription>
-                                  Vous devez avoir au moins 13 ans pour vous
-                                  inscrire
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </motion.div>
-                      )}
-
-                      {/* Step 2: Location */}
-                      {currentStep === 2 && (
-                        <motion.div
-                          className="space-y-4"
-                          key="step2"
-                          initial="hidden"
-                          animate="visible"
-                          exit="exit"
-                          variants={stepVariants}
-                        >
-                          <div className="flex items-center gap-2 mb-4">
-                            <MapPin className="h-5 w-5 text-primary" />
-                            <h2 className="text-lg font-medium">
-                              Localisation
-                            </h2>
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="countryCode"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="flex items-center gap-1.5">
-                                  <MapPin className="h-4 w-4 text-primary" />
-                                  Pays
-                                </FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <CountrySelector
-                                      value={field.value}
-                                      onChange={field.onChange}
-                                      onCountryChange={handleCountryChange}
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <div className="grid grid-cols-1 gap-4">
-                            <FormField
-                              control={form.control}
-                              name="city"
-                              render={({ field }) => {
-                                const villesKey = getVillesKey(countryCode);
-                                return (
-                                  <FormItem>
-                                    <FormLabel className="flex items-center gap-1.5">
-                                      <MapPin className="h-4 w-4 text-primary" />
-                                      Ville
-                                    </FormLabel>
-                                    <FormControl>
-                                      <Select
-                                        onValueChange={(value) => {
-                                          field.onChange(value);
-                                          form.setValue("commune", ""); // reset commune
-                                        }}
-                                        value={field.value}
-                                      >
-                                        <SelectTrigger>
-                                          <SelectValue placeholder="Sélectionner une ville" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {villesKey &&
-                                          VILLES[villesKey] &&
-                                          VILLES[villesKey].length > 0 ? (
-                                            VILLES[villesKey].map(
-                                              (ville: {
-                                                value: string;
-                                                label: string;
-                                              }) => (
-                                                <SelectItem
-                                                  key={ville.value}
-                                                  value={ville.value}
-                                                >
-                                                  {ville.label}
-                                                </SelectItem>
-                                              )
-                                            )
-                                          ) : (
-                                            <SelectItem
-                                              value="__none__"
-                                              disabled
-                                            >
-                                              Aucune ville disponible
-                                            </SelectItem>
-                                          )}
-                                        </SelectContent>
-                                      </Select>
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                );
-                              }}
-                            />
-
-                            <FormField
-                              control={form.control}
-                              name="commune"
-                              render={({ field }) => {
-                                const communes = city
-                                  ? COMMUNES[city as keyof typeof COMMUNES] ||
-                                    []
-                                  : [];
-                                return (
-                                  <FormItem>
-                                    <FormLabel className="flex items-center gap-1.5">
-                                      <MapPin className="h-4 w-4 text-primary" />
-                                      Commune
-                                    </FormLabel>
-                                    <FormControl>
-                                      <Select
-                                        onValueChange={field.onChange}
-                                        value={field.value}
-                                        disabled={
-                                          !city || communes.length === 0
-                                        }
-                                      >
-                                        <SelectTrigger>
-                                          <SelectValue placeholder="Sélectionner une commune" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {communes.length > 0 ? (
-                                            communes.map((commune) => (
-                                              <SelectItem
-                                                key={commune.value}
-                                                value={commune.value}
-                                              >
-                                                {commune.label}
-                                              </SelectItem>
-                                            ))
-                                          ) : (
-                                            <SelectItem
-                                              value="__none__"
-                                              disabled
-                                            >
-                                              Aucune commune disponible
-                                            </SelectItem>
-                                          )}
-                                        </SelectContent>
-                                      </Select>
-                                    </FormControl>
-                                    <FormDescription>
-                                      {!city
-                                        ? "Sélectionnez d'abord une ville"
-                                        : communes.length === 0
-                                        ? "Aucune commune disponible pour cette ville"
-                                        : "Sélectionnez votre commune"}
-                                    </FormDescription>
-                                    <FormMessage />
-                                  </FormItem>
-                                );
-                              }}
-                            />
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="address"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="flex items-center gap-1.5">
-                                  <MapPin className="h-4 w-4 text-primary" />
-                                  Adresse
-                                </FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <Input
-                                      placeholder="123 Rue Example"
-                                      {...field}
-                                      className={`bg-white/80 backdrop-blur-sm transition-all ${
-                                        form.formState.errors.address
-                                          ? "border-red-500 focus-visible:ring-red-500"
-                                          : isFieldValid("address")
-                                          ? "border-green-500 focus-visible:ring-green-500"
-                                          : "border-primary/20 hover:border-primary/40"
-                                      }`}
-                                    />
-                                    <ValidationStatus fieldName="address" />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="phoneNumber"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="flex items-center gap-1.5">
-                                  <Phone className="h-4 w-4 text-primary" />
-                                  Numéro de téléphone
-                                </FormLabel>
-                                <FormControl>
-                                  <PhoneInput
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    countryCode={countryCode}
-                                    onCountryCodeChange={(code) =>
-                                      form.setValue("countryCode", code)
-                                    }
-                                    onDialCodeChange={setDialCode}
-                                    placeholder="Numéro de téléphone"
-                                    className={`${
-                                      form.formState.errors.phoneNumber
-                                        ? "border-red-500 focus-visible:ring-red-500"
-                                        : field.value &&
-                                          !form.formState.errors.phoneNumber
-                                        ? "border-green-500 focus-visible:ring-green-500"
-                                        : ""
-                                    }`}
-                                  />
-                                </FormControl>
-                                <FormDescription>
-                                  Optionnel - Utilisé pour les notifications
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </motion.div>
-                      )}
-
-                      {/* Step 3: Profile */}
-                      {currentStep === 3 && (
-                        <motion.div
-                          className="space-y-4"
-                          key="step3"
-                          initial="hidden"
-                          animate="visible"
-                          exit="exit"
-                          variants={stepVariants}
-                        >
-                          <div className="flex items-center gap-2 mb-4">
-                            <Camera className="h-5 w-5 text-primary" />
-                            <h2 className="text-lg font-medium">Profil</h2>
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="photo"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="flex items-center gap-1.5">
-                                  <Camera className="h-4 w-4 text-primary" />
-                                  Photo de profil
-                                </FormLabel>
-                                <FormControl>
-                                  <div className="flex flex-col items-center gap-4">
-                                    <div className="relative h-32 w-32 overflow-hidden rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900 dark:to-indigo-900 flex items-center justify-center border-2 border-primary/20">
-                                      {photoPreview ? (
-                                        <img
-                                          src={
-                                            photoPreview || "/placeholder.svg"
-                                          }
-                                          alt="Preview"
-                                          className="h-full w-full object-cover"
-                                        />
-                                      ) : (
-                                        <User className="h-16 w-16 text-primary/40" />
-                                      )}
-                                    </div>
-                                    <Input
-                                      type="file"
-                                      accept="image/*"
-                                      onChange={handlePhotoChange}
-                                      className="cursor-pointer max-w-xs bg-white/80 backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-all"
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormDescription className="text-center">
-                                  Optionnel - Ajoutez une photo de profil (max
-                                  5MB)
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <div className="flex items-center gap-2 mt-8 mb-2">
-                            <Trophy className="h-5 w-5 text-primary" />
-                            <h2 className="text-lg font-medium">
-                              Type de compte
-                            </h2>
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="role"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Je souhaite</FormLabel>
-                                <div className="grid grid-cols-2 gap-4 mt-2">
-                                  <Button
-                                    type="button"
-                                    variant={
-                                      field.value === "ORGANIZER"
-                                        ? "default"
-                                        : "outline"
-                                    }
-                                    className={`h-auto py-6 flex flex-col items-center justify-center gap-2 ${
-                                      field.value === "ORGANIZER"
-                                        ? "ring-2 ring-primary bg-gradient-to-br from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800"
-                                        : "bg-white/80 backdrop-blur-sm hover:bg-white/90"
-                                    }`}
-                                    onClick={() =>
-                                      form.setValue("role", "ORGANIZER")
-                                    }
-                                  >
-                                    <Trophy className="h-8 w-8" />
-                                    <div className="text-center">
-                                      <div className="font-medium">
-                                        Organiser
-                                      </div>
-                                      <div className="text-xs text-muted-foreground">
-                                        Créer et gérer des compétitions
-                                      </div>
-                                    </div>
-                                  </Button>
-
-                                  <Button
-                                    type="button"
-                                    variant={
-                                      field.value === "PARTICIPANT"
-                                        ? "default"
-                                        : "outline"
-                                    }
-                                    className={`h-auto py-6 flex flex-col items-center justify-center gap-2 ${
-                                      field.value === "PARTICIPANT"
-                                        ? "ring-2 ring-primary bg-gradient-to-br from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800"
-                                        : "bg-white/80 backdrop-blur-sm hover:bg-white/90"
-                                    }`}
-                                    onClick={() =>
-                                      form.setValue("role", "PARTICIPANT")
-                                    }
-                                  >
-                                    <User className="h-8 w-8" />
-                                    <div className="text-center">
-                                      <div className="font-medium">
-                                        Participer
-                                      </div>
-                                      <div className="text-xs text-muted-foreground">
-                                        Rejoindre des compétitions
-                                      </div>
-                                    </div>
-                                  </Button>
-                                </div>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          {role === "ORGANIZER" && (
-                            <FormField
-                              control={form.control}
-                              name="competitionCategory"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="flex items-center gap-1.5">
-                                    <Trophy className="h-4 w-4 text-primary" />
-                                    Catégorie de compétition principale
-                                  </FormLabel>
-                                  <Select
-                                    onValueChange={field.onChange}
-                                    defaultValue={field.value}
-                                  >
-                                    <FormControl>
-                                      <SelectTrigger className="bg-white/80 backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-all">
-                                        <SelectValue placeholder="Sélectionner une catégorie" />
-                                      </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                      {COMPETITION_CATEGORIES.map(
-                                        (category) => (
-                                          <SelectItem
-                                            key={category.value}
-                                            value={category.value}
-                                          >
-                                            {category.label}
-                                          </SelectItem>
-                                        )
-                                      )}
-                                    </SelectContent>
-                                  </Select>
-                                  <FormDescription>
-                                    Vous pourrez organiser d'autres types de
-                                    compétitions plus tard
-                                  </FormDescription>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          )}
-                          {currentStep === 3 && (
-                            <div className="mt-6">
-                              <SocialAuthDivider />
-                              <div className="mt-4 space-y-4">
-                                <GoogleButton callbackUrl="/signup" />
-                                <div className="text-xs text-center text-muted-foreground">
-                                  En vous connectant avec Google, vous pourrez
-                                  créer un compte plus rapidement.
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* Navigation buttons */}
-                    <div className="flex justify-between pt-4 border-t">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={prevStep}
-                        disabled={currentStep === 1}
-                        className="bg-white/80 backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-all"
-                      >
-                        Précédent
-                      </Button>
-
-                      {currentStep < 3 ? (
-                        <Button
-                          type="button"
-                          onClick={nextStep}
-                          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                        >
-                          Suivant
-                          <ChevronRight className="ml-2 h-4 w-4" />
-                        </Button>
-                      ) : (
-                        <Button
-                          type="submit"
-                          disabled={isLoading || !form.formState.isValid}
-                          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                        >
-                          {isLoading ? "Inscription en cours..." : "S'inscrire"}
-                        </Button>
-                      )}
-                    </div>
-                  </form>
-                </Form>
-              </div>
+  // Afficher l'écran de succès
+  if (registrationComplete) {
+    return (
+      <div className="container max-w-md py-20 flex flex-col items-center justify-center">
+        <Card className="w-full border-none shadow-xl bg-gradient-to-b from-white to-blue-50 dark:from-gray-900 dark:to-gray-800">
+          <CardHeader className="text-center pb-2">
+            <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center mb-4">
+              <Check className="h-10 w-10 text-white" />
             </div>
+            <CardTitle className="text-2xl font-bold bg-gradient-to-r from-emerald-500 to-teal-600 bg-clip-text text-transparent">
+              Inscription réussie !
+            </CardTitle>
+            <CardDescription className="text-base">
+              Votre compte a été créé avec succès
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center justify-center py-6">
+            <p className="text-center text-muted-foreground mb-6">
+              Vous allez être redirigé vers la page de connexion dans quelques
+              instants...
+            </p>
+            <Button
+              onClick={() => router.push("/signin")}
+              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-medium px-8 py-2"
+            >
+              Se connecter maintenant
+            </Button>
           </CardContent>
         </Card>
       </div>
-    </AuthBackground>
+    );
+  }
+
+  return (
+    <div className="container max-w-4xl py-10">
+      <Card className="border-none shadow-xl overflow-hidden bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800">
+        <CardHeader className="relative pb-2">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-400/10 to-purple-500/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
+          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+            Créer un compte
+          </CardTitle>
+          <CardDescription className="text-base">
+            Étape {step + 1} sur {STEPS.length} : {currentStep.title}
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent>
+          {/* Barre de progression */}
+          <div className="w-full mb-8">
+            <div className="flex justify-between items-center mb-2">
+              {STEPS.map((s, i) => (
+                <div
+                  key={s.id}
+                  className={cn(
+                    "flex flex-col items-center",
+                    i <= step ? s.textColor : "text-gray-400 dark:text-gray-600"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "w-10 h-10 rounded-full flex items-center justify-center border-2",
+                      i < step
+                        ? `${s.borderColor} ${s.bgColor}`
+                        : i === step
+                        ? `border-2 ${s.borderColor} ${s.bgColor}`
+                        : "border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800"
+                    )}
+                  >
+                    {i < step ? (
+                      <Check className="h-5 w-5" />
+                    ) : (
+                      <s.icon className="h-5 w-5" />
+                    )}
+                  </div>
+                  <span className="text-xs mt-1 font-medium hidden md:block">
+                    {s.title}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full bg-gradient-to-r",
+                  currentStep.color
+                )}
+                style={{ width: `${(step / (STEPS.length - 1)) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          <Form {...form}>
+            <form className="space-y-6">
+              {/* Étape 1: Informations de base */}
+              {step === 0 && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-center mb-6">
+                    <div
+                      className={cn(
+                        "p-4 rounded-full",
+                        currentStep.bgColor,
+                        currentStep.textColor
+                      )}
+                    >
+                      <User className="h-8 w-8" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <FormField
+                      control={form.control}
+                      name="firstName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                            <User className="h-4 w-4" />
+                            Prénom
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Jean"
+                              {...field}
+                              className="border-blue-200 dark:border-blue-800 focus-visible:ring-blue-500"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="lastName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                            <User className="h-4 w-4" />
+                            Nom
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Dupont"
+                              {...field}
+                              className="border-blue-200 dark:border-blue-800 focus-visible:ring-blue-500"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                          <Mail className="h-4 w-4" />
+                          Email
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="jean.dupont@example.com"
+                            {...field}
+                            className="border-blue-200 dark:border-blue-800 focus-visible:ring-blue-500"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                          <Lock className="h-4 w-4" />
+                          Mot de passe
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            {...field}
+                            className="border-blue-200 dark:border-blue-800 focus-visible:ring-blue-500"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                        <div className="text-xs text-gray-500 mt-2">
+                          Le mot de passe doit contenir au moins 8 caractères.
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
+
+              {/* Étape 2: Informations personnelles */}
+              {step === 1 && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-center mb-6">
+                    <div
+                      className={cn(
+                        "p-4 rounded-full",
+                        currentStep.bgColor,
+                        currentStep.textColor
+                      )}
+                    >
+                      <Calendar className="h-8 w-8" />
+                    </div>
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="dateOfBirth"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                          <Calendar className="h-4 w-4" />
+                          Date de naissance
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="date"
+                            {...field}
+                            className="border-emerald-200 dark:border-emerald-800 focus-visible:ring-emerald-500"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className="space-y-2">
+                    <FormField
+                      control={form.control}
+                      name="phoneCountryCode"
+                      render={({ field }) => (
+                        <FormItem className="hidden">
+                          <FormControl>
+                            <Input type="hidden" {...field} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="phoneNumber"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                            <Phone className="h-4 w-4" />
+                            Téléphone
+                          </FormLabel>
+                          <FormControl>
+                            <PhoneInput
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              countryCode={watchPhoneCountryCode || "FR"}
+                              onCountryCodeChange={handlePhoneCountryCodeChange}
+                              className="border-emerald-200 dark:border-emerald-800 focus-visible:ring-emerald-500"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                          <div className="text-xs text-gray-500 mt-1">
+                            {watchCountry
+                              ? `Le code pays est automatiquement défini selon le pays sélectionné (${
+                                  getCountryByCode(watchCountry)?.name || ""
+                                }).`
+                              : "Vous pouvez changer le code pays en sélectionnant un pays à l'étape suivante."}
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Étape 3: Adresse */}
+              {step === 2 && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-center mb-6">
+                    <div
+                      className={cn(
+                        "p-4 rounded-full",
+                        currentStep.bgColor,
+                        currentStep.textColor
+                      )}
+                    >
+                      <MapPin className="h-8 w-8" />
+                    </div>
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="country"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                          <MapPin className="h-4 w-4" />
+                          Pays
+                        </FormLabel>
+                        <FormControl>
+                          <CountrySelector
+                            value={field.value || ""}
+                            onChange={(value) => {
+                              field.onChange(value);
+                              // Le code pays du téléphone sera mis à jour automatiquement via useEffect
+                            }}
+                            className="border-amber-200 dark:border-amber-800 focus-visible:ring-amber-500"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                        <div className="text-xs text-gray-500 mt-1">
+                          La sélection d'un pays mettra automatiquement à jour
+                          le code téléphonique et filtrera les villes
+                          disponibles.
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <FormField
+                      control={form.control}
+                      name="city"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                            <Home className="h-4 w-4" />
+                            Ville
+                          </FormLabel>
+                          <FormControl>
+                            <CitySelector
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              countryCode={watchCountry}
+                              className="border-amber-200 dark:border-amber-800 focus-visible:ring-amber-500"
+                              placeholder={
+                                watchCountry
+                                  ? "Sélectionnez une ville"
+                                  : "Sélectionnez d'abord un pays"
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                          {!watchCountry && (
+                            <div className="text-xs text-amber-600 mt-1">
+                              Veuillez d'abord sélectionner un pays.
+                            </div>
+                          )}
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="commune"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                            <Home className="h-4 w-4" />
+                            Commune
+                          </FormLabel>
+                          <FormControl>
+                            <CommuneSelector
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              cityCode={watchCity}
+                              className="border-amber-200 dark:border-amber-800 focus-visible:ring-amber-500"
+                              placeholder={
+                                watchCity
+                                  ? "Sélectionnez une commune"
+                                  : "Sélectionnez d'abord une ville"
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                          {!watchCity && (
+                            <div className="text-xs text-amber-600 mt-1">
+                              Veuillez d'abord sélectionner une ville.
+                            </div>
+                          )}
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="address"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                          <Home className="h-4 w-4" />
+                          Adresse
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="123 Rue de la Paix"
+                            {...field}
+                            className="border-amber-200 dark:border-amber-800 focus-visible:ring-amber-500"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Affichage récapitulatif de la localisation */}
+                  {(watchCountry || watchCity || form.getValues("commune")) && (
+                    <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                      <p className="text-sm text-amber-700 dark:text-amber-300 font-medium mb-2">
+                        Localisation sélectionnée :
+                      </p>
+                      <div className="text-sm text-amber-600 dark:text-amber-400 space-y-1">
+                        {watchCountry && (
+                          <div>• Pays : {getLocationNames().countryName}</div>
+                        )}
+                        {watchCity && (
+                          <div>• Ville : {getLocationNames().cityName}</div>
+                        )}
+                        {form.getValues("commune") && (
+                          <div>
+                            • Commune : {getLocationNames().communeName}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Étape 4: Rôle */}
+              {step === 3 && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-center mb-6">
+                    <div
+                      className={cn(
+                        "p-4 rounded-full",
+                        currentStep.bgColor,
+                        currentStep.textColor
+                      )}
+                    >
+                      <Users className="h-8 w-8" />
+                    </div>
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="role"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2 text-purple-600 dark:text-purple-400">
+                          <Users className="h-4 w-4" />
+                          Rôle
+                        </FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          defaultValue={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="border-purple-200 dark:border-purple-800 focus-visible:ring-purple-500">
+                              <SelectValue placeholder="Sélectionnez un rôle" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="PARTICIPANT">
+                              Participant
+                            </SelectItem>
+                            <SelectItem value="ORGANIZER">
+                              Organisateur
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {watchRole === "ORGANIZER" && (
+                    <FormField
+                      control={form.control}
+                      name="competitionCategory"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2 text-purple-600 dark:text-purple-400">
+                            <Trophy className="h-4 w-4" />
+                            Catégorie de compétition
+                          </FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="border-purple-200 dark:border-purple-800 focus-visible:ring-purple-500">
+                                <SelectValue placeholder="Sélectionnez une catégorie" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {COMPETITION_CATEGORIES.map((category) => (
+                                <SelectItem
+                                  key={category.value}
+                                  value={category.value}
+                                >
+                                  {category.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Étape 5: Photo de profil */}
+              {step === 4 && (
+                <div className="flex flex-col items-center space-y-6">
+                  <div className="flex items-center justify-center mb-2">
+                    <div
+                      className={cn(
+                        "p-4 rounded-full",
+                        currentStep.bgColor,
+                        currentStep.textColor
+                      )}
+                    >
+                      <ImageIcon className="h-8 w-8" />
+                    </div>
+                  </div>
+
+                  <FormLabel className="text-center text-lg flex items-center gap-2 justify-center text-rose-600 dark:text-rose-400">
+                    <ImageIcon className="h-5 w-5" />
+                    Photo de profil
+                  </FormLabel>
+
+                  <div className="relative">
+                    <div
+                      className={cn(
+                        "absolute inset-0 rounded-full blur-md opacity-30",
+                        photoPreview ? "bg-rose-500/30" : "bg-muted"
+                      )}
+                    />
+                    <Avatar className="w-32 h-32 border-4 border-white dark:border-gray-800 relative z-10">
+                      <AvatarImage
+                        src={photoPreview || ""}
+                        alt="Photo de profil"
+                      />
+                      <AvatarFallback className="text-2xl bg-gradient-to-br from-rose-500 to-pink-600 text-white">
+                        {form.getValues("firstName")?.charAt(0) || ""}
+                        {form.getValues("lastName")?.charAt(0) || ""}
+                      </AvatarFallback>
+                    </Avatar>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      id="photo"
+                      className="hidden"
+                      onChange={handlePhotoChange}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById("photo")?.click()}
+                      className="border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Télécharger une photo
+                    </Button>
+                  </div>
+
+                  <p className="text-sm text-muted-foreground text-center max-w-md">
+                    Ajoutez une photo de profil pour personnaliser votre compte.
+                    Cette étape est facultative, vous pourrez toujours ajouter
+                    une photo plus tard.
+                  </p>
+                </div>
+              )}
+            </form>
+          </Form>
+        </CardContent>
+
+        <CardFooter className="flex justify-between pt-6">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={goToPreviousStep}
+            disabled={step === 0 || isLoading}
+            className="border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Précédent
+          </Button>
+
+          <Button
+            type="button"
+            onClick={goToNextStep}
+            disabled={isLoading}
+            className={cn(
+              "text-white font-medium",
+              step === 0
+                ? "bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700"
+                : step === 1
+                ? "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+                : step === 2
+                ? "bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700"
+                : step === 3
+                ? "bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700"
+                : "bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700"
+            )}
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Veuillez patienter
+              </>
+            ) : step === STEPS.length - 1 ? (
+              <>
+                <Check className="mr-2 h-4 w-4" />
+                Terminer
+              </>
+            ) : (
+              <>
+                Suivant
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            )}
+          </Button>
+        </CardFooter>
+      </Card>
+    </div>
   );
 }

@@ -180,7 +180,7 @@ model Competition {
   startDate           DateTime?
   endDate             DateTime?
   description         String?
-  rules               String?
+  rules               Json?              // Changed from String? to Json? to handle array data
   prizes              Json?
   uniqueCode          String             @unique
   status              CompetitionStatus  @default(OPEN)

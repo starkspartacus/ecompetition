@@ -7,6 +7,8 @@ import { useSession } from "next-auth/react";
 import { RealTimeNotifications } from "@/components/real-time-notifications";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { DashboardNav } from "@/components/dashboard-nav";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 
 export default function DashboardLayout({
   children,
@@ -16,7 +18,7 @@ export default function DashboardLayout({
   const { data: session, status } = useSession();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
-  const { isConnected } = useWebSocket({ debug: false }); // Désactiver le debug par défaut
+  const { isConnected, connectionError } = useWebSocket({ debug: false });
 
   useEffect(() => {
     // Ne rien faire si le statut est toujours en chargement
@@ -63,6 +65,23 @@ export default function DashboardLayout({
           role: session.user.role || "PARTICIPANT",
         }}
       />
+
+      {/* WebSocket connection error alert - only in development */}
+      {process.env.NODE_ENV === "development" && connectionError && (
+        <Alert variant="destructive" className="mx-auto my-2 max-w-7xl">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Problème de connexion WebSocket</AlertTitle>
+          <AlertDescription>
+            Les notifications en temps réel ne sont pas disponibles. Erreur:{" "}
+            {connectionError}
+            <br />
+            <span className="font-mono text-xs">
+              Conseil: Exécutez <code>node server.ts</code> pour démarrer le
+              serveur WebSocket.
+            </span>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Main content */}
       <main className="flex-1 p-4 transition-all duration-300 ease-in-out md:p-6 lg:p-8 pb-16 md:pb-8">
