@@ -90,6 +90,13 @@ import { COUNTRIES } from "@/constants/countries";
 import { CITIES } from "@/constants/villes";
 import { COMMUNES } from "@/constants/communes";
 import { SocialCardGenerator } from "@/components/social-card-generator";
+import {
+  uploadImageServer,
+  validateImageFile,
+  createPreviewUrl,
+  IMAGE_CONFIGS,
+} from "@/lib/blob";
+import { useSession } from "next-auth/react";
 
 // Définition du schéma de validation
 const formSchema = z
@@ -107,7 +114,7 @@ const formSchema = z
       message: "Veuillez sélectionner un pays.",
     }),
     city: z.string().min(1, {
-      message: "Veuillez sélectionner une ville.",
+      message: "Veuillez entrer une adresse valide.",
     }),
     commune: z.string().optional(),
     location: z.string().min(3, {
@@ -175,6 +182,7 @@ export default function CreateCompetitionPage() {
   const [competitionData, setCompetitionData] = useState<any>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
+  const { data: session } = useSession();
 
   // Définition du type pour le formulaire
   type FormData = z.infer<typeof formSchema>;
@@ -254,28 +262,93 @@ export default function CreateCompetitionPage() {
   }, [form.watch()]);
 
   // Gérer le changement d'image
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      form.setValue("image", file);
-      const reader = new FileReader();
-      reader.onload = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        // Validation immédiate
+        const validation = validateImageFile(file, IMAGE_CONFIGS.competition);
+        if (!validation.valid) {
+          toast({
+            title: "Fichier invalide",
+            description: validation.error,
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Prévisualisation immédiate
+        const previewUrl = createPreviewUrl(file);
+        setImagePreview(previewUrl);
+
+        // Upload en arrière-plan
+        const url = await uploadImageServer(file, "competition", {
+          competitionName: form.getValues("name") || "competition",
+          uploadedBy: session?.user?.id || "unknown",
+        });
+
+        form.setValue("image", file);
+
+        toast({
+          title: "Image uploadée",
+          description: "L'image a été uploadée avec succès",
+        });
+      } catch (error) {
+        console.error("Erreur upload image:", error);
+        toast({
+          title: "Erreur d'upload",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Impossible d'uploader l'image",
+          variant: "destructive",
+        });
+      }
     }
   };
 
-  // Gérer le changement de bannière
-  const handleBannerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBannerChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      form.setValue("banner", file);
-      const reader = new FileReader();
-      reader.onload = () => {
-        setBannerPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        // Validation immédiate
+        const validation = validateImageFile(file, IMAGE_CONFIGS.banner);
+        if (!validation.valid) {
+          toast({
+            title: "Fichier invalide",
+            description: validation.error,
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Prévisualisation immédiate
+        const previewUrl = createPreviewUrl(file);
+        setBannerPreview(previewUrl);
+
+        // Upload en arrière-plan
+        const url = await uploadImageServer(file, "banner", {
+          competitionName: form.getValues("name") || "competition",
+          uploadedBy: session?.user?.id || "unknown",
+        });
+
+        form.setValue("banner", file);
+
+        toast({
+          title: "Bannière uploadée",
+          description: "La bannière a été uploadée avec succès",
+        });
+      } catch (error) {
+        console.error("Erreur upload bannière:", error);
+        toast({
+          title: "Erreur d'upload",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Impossible d'uploader la bannière",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -1581,6 +1654,8 @@ export default function CreateCompetitionPage() {
                                         src={
                                           imagePreview ||
                                           "/placeholder.svg?height=200&width=200&query=placeholder" ||
+                                          "/placeholder.svg" ||
+                                          "/placeholder.svg" ||
                                           "/placeholder.svg"
                                         }
                                         alt="Aperçu de l'image"
@@ -1641,6 +1716,8 @@ export default function CreateCompetitionPage() {
                                         src={
                                           bannerPreview ||
                                           "/placeholder.svg?height=200&width=200&query=placeholder" ||
+                                          "/placeholder.svg" ||
+                                          "/placeholder.svg" ||
                                           "/placeholder.svg"
                                         }
                                         alt="Aperçu de la bannière"
@@ -1702,6 +1779,8 @@ export default function CreateCompetitionPage() {
                                         src={
                                           imagePreview ||
                                           "/placeholder.svg?height=200&width=200&query=placeholder" ||
+                                          "/placeholder.svg" ||
+                                          "/placeholder.svg" ||
                                           "/placeholder.svg"
                                         }
                                         alt="Logo"

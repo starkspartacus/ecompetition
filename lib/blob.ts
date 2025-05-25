@@ -1,111 +1,174 @@
-import { put } from "@vercel/blob";
+import { put, del, list } from "@vercel/blob";
 import { nanoid } from "nanoid";
 
+// Configuration pour les différents types d'images
+export const IMAGE_CONFIGS = {
+  profile: {
+    maxSize: 2 * 1024 * 1024, // 2MB
+    maxWidth: 400,
+    maxHeight: 400,
+    quality: 0.8,
+    folder: "profiles",
+  },
+  banner: {
+    maxSize: 5 * 1024 * 1024, // 5MB
+    maxWidth: 1200,
+    maxHeight: 630,
+    quality: 0.85,
+    folder: "banners",
+  },
+  logo: {
+    maxSize: 1 * 1024 * 1024, // 1MB
+    maxWidth: 300,
+    maxHeight: 300,
+    quality: 0.9,
+    folder: "logos",
+  },
+  competition: {
+    maxSize: 3 * 1024 * 1024, // 3MB
+    maxWidth: 800,
+    maxHeight: 600,
+    quality: 0.85,
+    folder: "competitions",
+  },
+};
+
+export type ImageType = keyof typeof IMAGE_CONFIGS;
+
 /**
- * Télécharge une image vers Vercel Blob Storage
- * @param file Fichier à télécharger
- * @returns URL de l'image téléchargée
+ * Upload une image vers Vercel Blob côté serveur (sans optimisation)
  */
-export async function uploadImage(file: File): Promise<string> {
+export async function uploadImageServer(
+  file: File,
+  type: ImageType = "competition",
+  metadata?: Record<string, string>
+): Promise<string> {
   try {
-    console.log("📤 Début du téléchargement de l'image:", file.name, file.size);
+    console.log(
+      `📤 Upload ${type} image (server):`,
+      file.name,
+      `${(file.size / 1024 / 1024).toFixed(2)}MB`
+    );
 
-    // Vérifier si le fichier est valide
-    if (!file || !file.type.startsWith("image/")) {
-      console.error("❌ Type de fichier invalide:", file?.type);
-      throw new Error("Le fichier doit être une image (JPG, PNG, GIF, WebP)");
-    }
+    const config = IMAGE_CONFIGS[type];
 
-    // Vérifier la taille du fichier (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      console.error("❌ Fichier trop volumineux:", file.size);
-      throw new Error("La taille de l'image ne doit pas dépasser 5MB");
+    // Validation du fichier
+    const validation = validateImageFile(file, config);
+    if (!validation.valid) {
+      throw new Error(validation.error);
     }
 
     // Générer un nom de fichier unique
-    const fileExtension = file.name.split(".").pop() || "jpg";
-    const filename = `profile-${nanoid()}.${fileExtension}`;
+    const fileExtension = getFileExtension(file.name);
+    const filename = `${config.folder}/${nanoid()}.${fileExtension}`;
 
-    console.log("📤 Téléchargement vers Blob Storage:", filename);
+    // Upload direct sans optimisation côté serveur
+    const { url } = await uploadWithRetry(file, filename);
 
-    // Télécharger le fichier vers Vercel Blob
-    const { url } = await put(filename, file, {
-      access: "public",
-      addRandomSuffix: false, // On a déjà un nom unique
-    });
-
-    console.log("✅ Image téléchargée avec succès:", url);
+    console.log(`✅ Image ${type} uploadée (server):`, url);
     return url;
   } catch (error) {
-    console.error("❌ Erreur lors du téléchargement de l'image:", error);
+    console.error(`❌ Erreur upload ${type} (server):`, error);
 
-    // Si c'est une erreur de configuration Blob, utiliser un placeholder
+    // Fallback vers placeholder si l'upload échoue
     if (
       error instanceof Error &&
       error.message.includes("BLOB_READ_WRITE_TOKEN")
     ) {
-      console.warn(
-        "⚠️ BLOB_READ_WRITE_TOKEN non configuré, utilisation d'un placeholder"
+      console.warn("⚠️ Token Blob manquant, utilisation placeholder");
+      const config = IMAGE_CONFIGS[type];
+      return getPlaceholderImage(
+        config.maxWidth,
+        config.maxHeight,
+        `${type} image`
       );
-      return getPlaceholderImage(300, 300, "Photo de profil");
     }
 
-    // Relancer l'erreur pour que l'appelant puisse la gérer
     throw error;
   }
 }
 
 /**
- * Génère une URL pour une image de prévisualisation
- * @param width Largeur de l'image
- * @param height Hauteur de l'image
- * @param text Texte à afficher sur l'image
- * @returns URL de l'image de prévisualisation
+ * Upload avec retry automatique
  */
-export function getPlaceholderImage(
-  width: number,
-  height: number,
-  text: string
-): string {
-  const encodedText = encodeURIComponent(text);
-  return `https://placehold.co/${width}x${height}/e11d48/ffffff?text=${encodedText}`;
+async function uploadWithRetry(
+  file: File,
+  filename: string,
+  maxRetries = 3
+): Promise<{ url: string }> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`📤 Tentative ${attempt}/${maxRetries} pour ${filename}`);
+
+      const result = await put(filename, file, {
+        access: "public",
+        addRandomSuffix: false,
+      });
+
+      return result;
+    } catch (error) {
+      lastError = error as Error;
+      console.warn(`⚠️ Échec tentative ${attempt}:`, error);
+
+      if (attempt < maxRetries) {
+        // Attendre avant de réessayer (backoff exponentiel)
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.pow(2, attempt) * 1000)
+        );
+      }
+    }
+  }
+
+  throw lastError || new Error("Upload failed after retries");
 }
 
 /**
- * Valide qu'un fichier est une image valide
- * @param file Fichier à valider
- * @returns true si le fichier est valide
+ * Validation avancée des fichiers image
  */
-export function validateImageFile(file: File): {
-  valid: boolean;
-  error?: string;
-} {
+export function validateImageFile(
+  file: File,
+  config?: (typeof IMAGE_CONFIGS)[ImageType]
+): { valid: boolean; error?: string } {
   if (!file) {
     return { valid: false, error: "Aucun fichier sélectionné" };
   }
 
-  if (!file.type.startsWith("image/")) {
-    return { valid: false, error: "Le fichier doit être une image" };
-  }
-
+  // Vérifier le type MIME
   const allowedTypes = [
     "image/jpeg",
     "image/jpg",
     "image/png",
     "image/gif",
     "image/webp",
+    "image/svg+xml",
   ];
+
   if (!allowedTypes.includes(file.type)) {
     return {
       valid: false,
-      error: "Format d'image non supporté. Utilisez JPG, PNG, GIF ou WebP",
+      error: "Format non supporté. Utilisez JPG, PNG, GIF, WebP ou SVG",
     };
   }
 
-  if (file.size > 5 * 1024 * 1024) {
+  // Vérifier la taille si config fournie
+  if (config && file.size > config.maxSize) {
+    const maxSizeMB = (config.maxSize / 1024 / 1024).toFixed(1);
     return {
       valid: false,
-      error: "La taille de l'image ne doit pas dépasser 5MB",
+      error: `Fichier trop volumineux. Taille max: ${maxSizeMB}MB`,
+    };
+  }
+
+  // Vérifier l'extension
+  const extension = getFileExtension(file.name);
+  const allowedExtensions = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
+
+  if (!allowedExtensions.includes(extension.toLowerCase())) {
+    return {
+      valid: false,
+      error: "Extension de fichier non supportée",
     };
   }
 
@@ -113,69 +176,116 @@ export function validateImageFile(file: File): {
 }
 
 /**
- * Redimensionne une image avant l'upload
- * @param file Fichier image à redimensionner
- * @param maxWidth Largeur maximale
- * @param maxHeight Hauteur maximale
- * @param quality Qualité de compression (0-1)
- * @returns Promise<File> Fichier redimensionné
+ * Supprime une image du Blob Storage
  */
-export function resizeImage(
-  file: File,
-  maxWidth = 800,
-  maxHeight = 800,
-  quality = 0.8
-): Promise<File> {
+export async function deleteImage(url: string): Promise<boolean> {
+  try {
+    console.log("🗑️ Suppression image:", url);
+
+    await del(url);
+
+    console.log("✅ Image supprimée avec succès");
+    return true;
+  } catch (error) {
+    console.error("❌ Erreur suppression image:", error);
+    return false;
+  }
+}
+
+/**
+ * Liste les images d'un dossier
+ */
+export async function listImages(folder?: string): Promise<string[]> {
+  try {
+    const { blobs } = await list({
+      prefix: folder ? `${folder}/` : undefined,
+    });
+
+    return blobs.map((blob) => blob.url);
+  } catch (error) {
+    console.error("❌ Erreur listage images:", error);
+    return [];
+  }
+}
+
+/**
+ * Génère une URL de placeholder
+ */
+export function getPlaceholderImage(
+  width: number,
+  height: number,
+  text: string,
+  bgColor = "e11d48",
+  textColor = "ffffff"
+): string {
+  const encodedText = encodeURIComponent(text);
+  return `https://placehold.co/${width}x${height}/${bgColor}/${textColor}?text=${encodedText}`;
+}
+
+/**
+ * Extrait l'extension d'un nom de fichier
+ */
+function getFileExtension(filename: string): string {
+  return filename.split(".").pop()?.toLowerCase() || "jpg";
+}
+
+/**
+ * Génère une URL de prévisualisation pour un fichier
+ */
+export function createPreviewUrl(file: File): string {
+  return URL.createObjectURL(file);
+}
+
+/**
+ * Libère une URL de prévisualisation
+ */
+export function revokePreviewUrl(url: string): void {
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Convertit une image en base64
+ */
+export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    const img = new Image();
-
-    img.onload = () => {
-      // Calculer les nouvelles dimensions
-      let { width, height } = img;
-
-      if (width > height) {
-        if (width > maxWidth) {
-          height = (height * maxWidth) / width;
-          width = maxWidth;
-        }
-      } else {
-        if (height > maxHeight) {
-          width = (width * maxHeight) / height;
-          height = maxHeight;
-        }
-      }
-
-      // Redimensionner l'image
-      canvas.width = width;
-      canvas.height = height;
-
-      if (ctx) {
-        ctx.drawImage(img, 0, 0, width, height);
-
-        canvas.toBlob(
-          (blob) => {
-            if (blob) {
-              const resizedFile = new File([blob], file.name, {
-                type: file.type,
-                lastModified: Date.now(),
-              });
-              resolve(resizedFile);
-            } else {
-              reject(new Error("Erreur lors du redimensionnement"));
-            }
-          },
-          file.type,
-          quality
-        );
-      } else {
-        reject(new Error("Impossible de créer le contexte canvas"));
-      }
-    };
-
-    img.onerror = () =>
-      reject(new Error("Erreur lors du chargement de l'image"));
-    img.src = URL.createObjectURL(file);
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
+}
+
+/**
+ * Vérifie si une URL est une image Blob Vercel
+ */
+export function isBlobUrl(url: string): boolean {
+  return (
+    url.includes("blob.vercel-storage.com") ||
+    url.includes("vercel-storage.com")
+  );
+}
+
+/**
+ * Nettoie les anciennes images non utilisées
+ */
+export async function cleanupUnusedImages(usedUrls: string[]): Promise<number> {
+  try {
+    console.log("🧹 Nettoyage des images non utilisées...");
+
+    const { blobs } = await list();
+    let deletedCount = 0;
+
+    for (const blob of blobs) {
+      if (!usedUrls.includes(blob.url)) {
+        await del(blob.url);
+        deletedCount++;
+      }
+    }
+
+    console.log(`✅ ${deletedCount} images supprimées`);
+    return deletedCount;
+  } catch (error) {
+    console.error("❌ Erreur nettoyage:", error);
+    return 0;
+  }
 }

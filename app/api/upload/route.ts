@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { put } from "@vercel/blob";
-import { nanoid } from "nanoid";
+import { uploadImageServer, type ImageType } from "@/lib/blob";
 
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File;
+    const type = (formData.get("type") as ImageType) || "profile";
+    const metadata = formData.get("metadata")
+      ? JSON.parse(formData.get("metadata") as string)
+      : {};
 
     if (!file) {
       return NextResponse.json(
@@ -14,19 +17,29 @@ export async function POST(request: Request) {
       );
     }
 
-    // Générer un nom de fichier unique
-    const filename = `${nanoid()}-${file.name}`;
+    // Upload avec le service optimisé
+    const url = await uploadImageServer(file, type, metadata);
 
-    // Télécharger le fichier vers Vercel Blob
-    const { url } = await put(filename, file, {
-      access: "public",
+    return NextResponse.json({
+      url,
+      message: "Image uploadée avec succès",
+      type,
+      size: file.size,
+      name: file.name,
     });
-
-    return NextResponse.json({ url });
   } catch (error) {
     console.error("Erreur lors du téléchargement de l'image:", error);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Une erreur est survenue lors du téléchargement de l'image";
+
     return NextResponse.json(
-      { message: "Une erreur est survenue lors du téléchargement de l'image" },
+      {
+        message,
+        error: true,
+      },
       { status: 500 }
     );
   }

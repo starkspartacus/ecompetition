@@ -37,7 +37,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { toast } from "@/components/ui/use-toast";
-import { uploadImage } from "@/lib/blob";
 import { COMPETITION_CATEGORIES } from "@/constants/categories";
 import {
   OFFSIDE_RULES,
@@ -63,6 +62,12 @@ import {
 } from "lucide-react";
 import { CountrySelector } from "@/components/country-selector";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  uploadImageServer,
+  validateImageFile,
+  createPreviewUrl,
+  IMAGE_CONFIGS,
+} from "@/lib/blob";
 
 const profileSchema = z.object({
   firstName: z.string().min(2, "Le prénom doit contenir au moins 2 caractères"),
@@ -374,15 +379,38 @@ export default function SettingsPage() {
     }
   }, [session, profileForm, activeTab]);
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setPhotoFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        // Validation immédiate
+        const validation = validateImageFile(file, IMAGE_CONFIGS.profile);
+        if (!validation.valid) {
+          toast({
+            title: "Fichier invalide",
+            description: validation.error,
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Prévisualisation immédiate
+        const previewUrl = createPreviewUrl(file);
+        setPhotoPreview(previewUrl);
+        setPhotoFile(file);
+
+        toast({
+          title: "Photo sélectionnée",
+          description: "La photo sera uploadée lors de la sauvegarde",
+        });
+      } catch (error) {
+        console.error("Erreur sélection photo:", error);
+        toast({
+          title: "Erreur",
+          description: "Impossible de traiter cette image",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -463,7 +491,10 @@ export default function SettingsPage() {
       let photoUrl = null;
       if (photoFile) {
         console.log("Téléchargement de la photo...");
-        photoUrl = await uploadImage(photoFile);
+        photoUrl = await uploadImageServer(photoFile, "profile", {
+          userId: session?.user?.id || "unknown",
+          userName: `${values.firstName} ${values.lastName}`,
+        });
         console.log("Photo téléchargée:", photoUrl);
       }
 

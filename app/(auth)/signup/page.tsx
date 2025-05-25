@@ -31,6 +31,7 @@ import {
   Users,
   ImageIcon,
   Trophy,
+  AlertCircle,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -54,14 +55,21 @@ import { CountrySelector } from "@/components/country-selector";
 import { CitySelector } from "@/components/city-selector";
 import { CommuneSelector } from "@/components/commune-selector";
 import { PhoneInput } from "@/components/phone-input";
-import { uploadImage, getPlaceholderImage } from "@/lib/blob";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { COMPETITION_CATEGORIES } from "@/constants/categories";
 import { cn } from "@/lib/utils";
-import { COUNTRIES, getCountryByCode } from "@/constants/countries";
+import { COUNTRIES } from "@/constants/countries";
 import { CITIES } from "@/constants/villes";
 import { COMMUNES } from "@/constants/communes";
-
+import {
+  uploadImageServer,
+  validateImageFile,
+  createPreviewUrl,
+  getPlaceholderImage,
+  IMAGE_CONFIGS,
+} from "@/lib/blob";
+import { usePhoneValidation } from "@/hooks/use-phone-validation";
+import { CompetitionDocument } from "@/lib/models/competition-model";
 // Schéma de validation simplifié
 const formSchema = z
   .object({
@@ -189,6 +197,13 @@ export default function SignUpPage() {
   const watchPhoneCountryCode = form.watch("phoneCountryCode");
   const currentStep = STEPS[step];
 
+  const {
+    isValid: isPhoneValid,
+    isChecking: isCheckingPhone,
+    error: phoneError,
+    checkPhoneUniqueness,
+  } = usePhoneValidation();
+
   // Mettre à jour le code pays du téléphone lorsque le pays change
   useEffect(() => {
     if (watchCountry) {
@@ -229,40 +244,54 @@ export default function SignUpPage() {
   }, [watchCity, form]);
 
   // Gérer le changement de photo
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
+    try {
+      // Validation immédiate
+      const validation = validateImageFile(file, IMAGE_CONFIGS.profile);
+      if (!validation.valid) {
+        toast({
+          title: "Fichier invalide",
+          description: validation.error,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Prévisualisation immédiate
+      const previewUrl = createPreviewUrl(file);
+      setPhotoPreview(previewUrl);
+      setPhotoFile(file);
+
       toast({
-        title: "Type de fichier non supporté",
-        description: "Veuillez sélectionner une image (JPG, PNG, etc.)",
+        title: "Photo sélectionnée",
+        description: "La photo sera uploadée lors de l'inscription",
+      });
+    } catch (error) {
+      console.error("Erreur sélection photo:", error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de traiter cette image",
         variant: "destructive",
       });
-      return;
     }
-
-    if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: "Fichier trop volumineux",
-        description: "La taille de l'image ne doit pas dépasser 5MB",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setPhotoFile(file);
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPhotoPreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
   };
 
   // Gérer le changement de code pays pour le téléphone
   const handlePhoneCountryCodeChange = (code: string) => {
     form.setValue("phoneCountryCode", code);
+  };
+
+  const handlePhoneChange = async (value: string) => {
+    form.setValue("phoneNumber", value);
+
+    // Valider l'unicité si on a un pays et un numéro
+    const country = form.getValues("country");
+    if (value && country && value.length >= 8) {
+      await checkPhoneUniqueness(value, country);
+    }
   };
 
   // Vérifier si l'étape actuelle est valide
@@ -334,7 +363,10 @@ export default function SignUpPage() {
       let photoUrl = values.photoUrl;
       if (photoFile) {
         try {
-          photoUrl = await uploadImage(photoFile);
+          photoUrl = await uploadImageServer(photoFile, "profile", {
+            userName: `${values.firstName} ${values.lastName}`,
+            userEmail: values.email,
+          });
         } catch (error) {
           console.error("Erreur lors du téléchargement de la photo:", error);
           photoUrl = getPlaceholderImage(300, 300, "Photo de profil");
@@ -661,24 +693,36 @@ export default function SignUpPage() {
                           <FormLabel className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                             <Phone className="h-4 w-4" />
                             Téléphone
+                            {isCheckingPhone && (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            )}
                           </FormLabel>
                           <FormControl>
                             <PhoneInput
                               value={field.value || ""}
-                              onChange={field.onChange}
+                              onChange={handlePhoneChange}
                               countryCode={watchPhoneCountryCode || "FR"}
                               onCountryCodeChange={handlePhoneCountryCodeChange}
-                              className="border-emerald-200 dark:border-emerald-800 focus-visible:ring-emerald-500"
+                              className={cn(
+                                "border-emerald-200 dark:border-emerald-800 focus-visible:ring-emerald-500",
+                                phoneError &&
+                                  "border-red-500 focus-visible:ring-red-500"
+                              )}
                             />
                           </FormControl>
                           <FormMessage />
-                          <div className="text-xs text-gray-500 mt-1">
-                            {watchCountry
-                              ? `Le code pays est automatiquement défini selon le pays sélectionné (${
-                                  getCountryByCode(watchCountry)?.name || ""
-                                }).`
-                              : "Vous pouvez changer le code pays en sélectionnant un pays à l'étape suivante."}
-                          </div>
+                          {phoneError && (
+                            <div className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                              <AlertCircle className="h-3 w-3" />
+                              {phoneError}
+                            </div>
+                          )}
+                          {!phoneError && isPhoneValid && field.value && (
+                            <div className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                              <Check className="h-3 w-3" />
+                              Numéro disponible dans ce pays
+                            </div>
+                          )}
                         </FormItem>
                       )}
                     />

@@ -255,21 +255,27 @@ export async function checkEmailExists(email: string): Promise<boolean> {
 }
 
 export async function checkPhoneNumberExists(
-  phoneNumber: string
+  phoneNumber: string,
+  country: string
 ): Promise<boolean> {
   try {
     const cleanedNumber = phoneNumber.replace(/\s+/g, "").trim();
 
-    // Chercher avec le numéro tel quel
-    let user = await userModel.findByPhoneNumber(cleanedNumber);
+    console.log("🔍 Vérification unicité téléphone:", {
+      phoneNumber: cleanedNumber,
+      country,
+    });
 
-    // Si pas trouvé, essayer avec/sans le préfixe +
-    if (!user) {
-      const alternativeNumber = cleanedNumber.startsWith("+")
-        ? cleanedNumber.substring(1)
-        : `+${cleanedNumber}`;
-      user = await userModel.findByPhoneNumber(alternativeNumber);
-    }
+    const user = await userModel.findByPhoneNumberAndCountry(
+      cleanedNumber,
+      country
+    );
+
+    console.log(
+      user
+        ? "❌ Numéro déjà utilisé dans ce pays"
+        : "✅ Numéro disponible dans ce pays"
+    );
 
     return !!user;
   } catch (error) {
@@ -278,6 +284,27 @@ export async function checkPhoneNumberExists(
       error
     );
     throw new Error("Erreur lors de la vérification du numéro de téléphone");
+  }
+}
+
+export async function validatePhoneUniqueness(
+  phoneNumber: string,
+  country: string,
+  excludeUserId?: string
+): Promise<boolean> {
+  try {
+    const cleanedNumber = phoneNumber.replace(/\s+/g, "").trim();
+    return await userModel.validatePhoneUniqueness(
+      cleanedNumber,
+      country,
+      excludeUserId
+    );
+  } catch (error) {
+    console.error(
+      "Erreur lors de la validation de l'unicité du téléphone:",
+      error
+    );
+    return false;
   }
 }
 

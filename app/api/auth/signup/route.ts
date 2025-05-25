@@ -2,6 +2,21 @@ import { type NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/database-service";
 
+async function checkPhoneNumberExists(
+  phoneNumber: string,
+  country: string
+): Promise<boolean> {
+  // Implement your logic to check if the phone number exists in the database for the given country
+  // This is a placeholder implementation, replace it with your actual database query
+  // Example:
+  const existingUser = await db.users.findByPhoneNumberAndCountry(
+    phoneNumber,
+    country
+  );
+
+  return !!existingUser;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
@@ -40,17 +55,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Vérifier si le numéro de téléphone existe déjà (s'il est fourni)
-    if (data.phoneNumber) {
-      const phoneNumberAlreadyExists = await db.users.findByPhoneNumber(
-        data.phoneNumber
+    // Vérifier si le numéro de téléphone existe déjà dans ce pays (s'il est fourni)
+    if (data.phoneNumber && data.country) {
+      const phoneNumberAlreadyExists = await checkPhoneNumberExists(
+        data.phoneNumber,
+        data.country
       );
       if (phoneNumberAlreadyExists) {
-        console.error("Numéro de téléphone déjà utilisé:", data.phoneNumber);
+        console.error(
+          "Numéro de téléphone déjà utilisé dans ce pays:",
+          data.phoneNumber,
+          data.country
+        );
         return NextResponse.json(
           {
             success: false,
-            message: "Ce numéro de téléphone est déjà utilisé",
+            message: "Ce numéro de téléphone est déjà utilisé dans ce pays",
           },
           { status: 400 }
         );

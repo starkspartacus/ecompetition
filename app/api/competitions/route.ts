@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/database-service";
-import { uploadImage } from "@/lib/blob";
+import { uploadImageServer } from "@/lib/blob";
 import { ObjectId } from "mongodb";
 
 export async function GET(request: NextRequest) {
@@ -232,8 +232,9 @@ export async function GET(request: NextRequest) {
           description: competition.description || "",
           category: competition.category || "Non spécifié",
           status: competition.status,
-          startDate: competition.startDate,
-          endDate: competition.endDate,
+          startDateCompetition: competition.startDateCompetition,
+          endDateCompetition: competition.endDateCompetition,
+          registrationStartDate: competition.registrationStartDate,
           registrationDeadline: competition.registrationDeadline,
           maxParticipants: competition.maxParticipants || 0,
           currentParticipants: acceptedParticipants,
@@ -372,13 +373,13 @@ export async function POST(request: NextRequest) {
     try {
       if (image && image instanceof File && image.size > 0) {
         console.log("📤 Upload de l'image principale:", image.name, image.size);
-        imageUrl = await uploadImage(image);
+        imageUrl = await uploadImageServer(image, "competition");
         console.log("✅ Image uploadée:", imageUrl);
       }
 
       if (banner && banner instanceof File && banner.size > 0) {
         console.log("📤 Upload de la bannière:", banner.name, banner.size);
-        bannerUrl = await uploadImage(banner);
+        bannerUrl = await uploadImageServer(banner, "banner");
         console.log("✅ Bannière uploadée:", bannerUrl);
       }
     } catch (uploadError) {

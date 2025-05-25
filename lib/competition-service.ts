@@ -1,4 +1,3 @@
-import { nanoid } from "nanoid";
 import type { CompetitionStatus } from "@/lib/prisma-schema";
 import {
   competitionModel,
@@ -22,8 +21,8 @@ interface CreateCompetitionParams {
   venue: string;
   registrationStartDate: Date;
   registrationDeadline: Date;
-  startDate: Date;
-  endDate: Date;
+  startDateCompetition: Date;
+  endDateCompetition: Date;
   maxParticipants: number;
   imageUrl?: string | null;
   bannerUrl?: string | null;
@@ -81,8 +80,8 @@ export async function createCompetition(
       country: params.country,
       city: params.city,
       commune: params.commune || undefined,
-      startDateCompetition: params.startDate,
-      endDateCompetition: params.endDate,
+      startDateCompetition: params.startDateCompetition,
+      endDateCompetition: params.endDateCompetition,
       registrationStartDate: params.registrationStartDate,
       registrationDeadline: params.registrationDeadline,
       maxParticipants: params.maxParticipants,
@@ -427,8 +426,8 @@ function validateCompetitionParams(params: CreateCompetitionParams): void {
     "venue",
     "registrationStartDate",
     "registrationDeadline",
-    "startDate",
-    "endDate",
+    "startDateCompetition",
+    "endDateCompetition",
     "maxParticipants",
     "organizerId",
   ];
@@ -453,13 +452,13 @@ function validateCompetitionParams(params: CreateCompetitionParams): void {
     );
   }
 
-  if (params.startDate <= params.registrationDeadline) {
+  if (params.startDateCompetition <= params.registrationDeadline) {
     throw new Error(
       "La date de début de compétition doit être après la date limite d'inscription"
     );
   }
 
-  if (params.endDate <= params.startDate) {
+  if (params.endDateCompetition <= params.startDateCompetition) {
     throw new Error("La date de fin doit être après la date de début");
   }
 
@@ -479,25 +478,59 @@ function validateCompetitionParams(params: CreateCompetitionParams): void {
 }
 
 /**
- * Génère un code unique pour la compétition
+ * Génère un code unique pour la compétition avec lettres, chiffres et symboles
  */
 async function generateUniqueCode(): Promise<string> {
+  // Caractères disponibles pour le code unique
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const numbers = "0123456789";
+  const symbols = "@#$%&*+=?";
+  const allChars = letters + numbers + symbols;
+
   let attempts = 0;
-  const maxAttempts = 10;
+  const maxAttempts = 20;
 
   while (attempts < maxAttempts) {
-    const code = nanoid(8).toUpperCase();
+    // Générer un code de 12 caractères avec structure : XXXX-XXXX-XXXX
+    let code = "";
+
+    // Première partie (4 caractères)
+    for (let i = 0; i < 4; i++) {
+      code += allChars.charAt(Math.floor(Math.random() * allChars.length));
+    }
+    code += "-";
+
+    // Deuxième partie (4 caractères)
+    for (let i = 0; i < 4; i++) {
+      code += allChars.charAt(Math.floor(Math.random() * allChars.length));
+    }
+    code += "-";
+
+    // Troisième partie (4 caractères)
+    for (let i = 0; i < 4; i++) {
+      code += allChars.charAt(Math.floor(Math.random() * allChars.length));
+    }
+
+    // Ajouter un timestamp encodé pour garantir l'unicité temporelle
+    const timestamp = Date.now().toString(36).toUpperCase().slice(-3);
+    code = code.slice(0, -3) + timestamp;
 
     // Vérifier l'unicité en cherchant dans la collection
-    const existing = await competitionModel.findMany({ name: code });
+    const existing = await competitionModel.findMany({ uniqueCode: code });
     if (existing.length === 0) {
+      console.log(`✅ Code unique généré: ${code}`);
       return code;
     }
 
     attempts++;
+    console.log(
+      `⚠️ Code ${code} déjà existant, tentative ${attempts}/${maxAttempts}`
+    );
   }
 
-  throw new Error("Impossible de générer un code unique");
+  throw new Error(
+    "Impossible de générer un code unique après plusieurs tentatives"
+  );
 }
 
 // Interfaces pour la compatibilité avec l'ancien code
@@ -506,11 +539,14 @@ export interface Competition extends Partial<CompetitionDocument> {
   title?: string;
   location?: string;
   registrationEndDate?: Date;
+  registrationStartDate?: Date;
   currentParticipants?: number;
   participants?: number;
   teams?: number;
   matches?: number;
   address?: string;
+  startDateCompetition?: Date;
+  endDateCompetition?: Date;
 }
 
 /**
@@ -530,6 +566,8 @@ export function normalizeCompetition(
     participants: 0, // À calculer dynamiquement
     teams: 0, // À calculer dynamiquement
     matches: 0, // À calculer dynamiquement
+    startDateCompetition: competition.startDateCompetition,
+    endDateCompetition: competition.endDateCompetition,
   };
 }
 

@@ -1,5 +1,6 @@
 import { BaseModel, type BaseDocument } from "./base-model";
 import bcrypt from "bcryptjs";
+import { ObjectId } from "mongodb";
 
 export type UserRole = "ADMIN" | "ORGANIZER" | "PARTICIPANT";
 
@@ -28,7 +29,10 @@ export class UserModel extends BaseModel<UserDocument> {
 
       await Promise.all([
         collection.createIndex({ email: 1 }, { unique: true }),
-        collection.createIndex({ phoneNumber: 1 }, { sparse: true }),
+        collection.createIndex(
+          { phoneNumber: 1, country: 1 },
+          { unique: true, sparse: true }
+        ),
         collection.createIndex({ role: 1 }),
         collection.createIndex({ country: 1 }),
         collection.createIndex({ city: 1 }),
@@ -50,6 +54,35 @@ export class UserModel extends BaseModel<UserDocument> {
 
   async findByPhoneNumber(phoneNumber: string): Promise<UserDocument | null> {
     return this.findOne({ phoneNumber });
+  }
+
+  async findByPhoneNumberAndCountry(
+    phoneNumber: string,
+    country: string
+  ): Promise<UserDocument | null> {
+    return this.findOne({ phoneNumber, country });
+  }
+
+  async validatePhoneUniqueness(
+    phoneNumber: string,
+    country: string,
+    excludeUserId?: string
+  ): Promise<boolean> {
+    try {
+      const filter: any = { phoneNumber, country };
+      if (excludeUserId) {
+        filter._id = { $ne: new ObjectId(excludeUserId) };
+      }
+
+      const existingUser = await this.findOne(filter);
+      return !existingUser;
+    } catch (error) {
+      console.error(
+        "❌ Erreur lors de la validation de l'unicité du téléphone:",
+        error
+      );
+      return false;
+    }
   }
 
   async createUser(
