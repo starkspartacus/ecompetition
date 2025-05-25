@@ -1,9 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { createNotification } from "@/lib/notification-service";
-import { getDb } from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { db } from "@/lib/database-service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,32 +34,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const db = await getDb();
-
-    // Rechercher la compétition dans MongoDB
+    // Rechercher la compétition
     let competition: any;
     if (competitionId) {
-      competition = await db
-        .collection("Competition")
-        .findOne({ _id: new ObjectId(competitionId) });
+      competition = await db.competitions.findById(competitionId);
     } else if (uniqueCode) {
-      competition = await db.collection("Competition").findOne({ uniqueCode });
+      competition = await db.competitions.findByUniqueCode(uniqueCode);
     }
 
     if (!competition) {
       return NextResponse.json(
         { error: "Compétition non trouvée" },
-        { status: 404 }
-      );
-    }
-
-    // Récupérer les informations de l'organisateur
-    const organizer = await db
-      .collection("User")
-      .findOne({ _id: new ObjectId(competition.organizerId) });
-    if (!organizer) {
-      return NextResponse.json(
-        { error: "Organisateur non trouvé" },
         { status: 404 }
       );
     }
@@ -102,30 +85,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Compter les participants acceptés
-    const acceptedParticipants = await db
-      .collection("Participation")
-      .countDocuments({
-        competitionId: new ObjectId(competition._id),
-        status: "ACCEPTED",
-      });
-
-    // Vérifier le nombre maximum de participants
-    if (
-      competition.maxParticipants &&
-      acceptedParticipants >= competition.maxParticipants
-    ) {
-      return NextResponse.json(
-        { error: "Le nombre maximum de participants est atteint" },
-        { status: 400 }
-      );
-    }
-
     // Vérifier si l'utilisateur a déjà une demande pour cette compétition
-    const existingParticipation = await db.collection("Participation").findOne({
-      competitionId: new ObjectId(competition._id),
-      participantId: new ObjectId(session.user.id),
-    });
+    const existingParticipation =
+      await db.participations.findByCompetitionAndParticipant(
+        competition.id,
+        session.user.id
+      );
 
     if (existingParticipation) {
       let statusMessage = "";
@@ -147,49 +112,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: statusMessage }, { status: 400 });
     }
 
-    // Récupérer les informations du participant
-    const participant = await db
-      .collection("User")
-      .findOne(
-        { _id: new ObjectId(session.user.id) },
-        { projection: { firstName: 1, lastName: 1, email: 1 } }
-      );
-
-    if (!participant) {
-      return NextResponse.json(
-        { error: "Participant non trouvé" },
-        { status: 404 }
-      );
-    }
-
-    // Créer la demande de participation dans MongoDB
-    const participationData = {
-      competitionId: new ObjectId(competition._id),
-      participantId: new ObjectId(session.user.id),
+    // Créer la demande de participation
+    const participation = await db.participations.create({
+      competitionId: competition.id,
+      participantId: session.user.id,
       status: "PENDING",
       message: message || "",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    });
 
-    const result = await db
-      .collection("Participation")
-      .insertOne(participationData);
-    const participationId = result.insertedId.toString();
-
-    console.log("✅ Demande de participation créée:", participationId);
+    console.log("✅ Demande de participation créée:", participation.id);
 
     // Créer une notification pour l'organisateur
+    const participant = await db.users.findById(session.user.id);
     const participantName =
-      `${participant.firstName || ""} ${participant.lastName || ""}`.trim() ||
+      `${participant?.firstName || ""} ${participant?.lastName || ""}`.trim() ||
       "Participant";
 
-    await createNotification({
-      userId: organizer._id.toString(),
+    await db.notifications.create({
+      userId: competition.organizerId,
       type: "PARTICIPATION_REQUEST",
       title: "Nouvelle demande de participation",
       message: `${participantName} souhaite participer à votre compétition "${competition.title}"`,
-      link: `/organizer/participations/${participationId}`,
+      link: `/organizer/participations/${participation.id}`,
     });
 
     console.log("✅ Notification envoyée à l'organisateur");
@@ -197,7 +141,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Demande de participation envoyée avec succès",
-      participationId,
+      participationId: participation.id,
       competitionTitle: competition.title,
     });
   } catch (error) {

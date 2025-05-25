@@ -2,7 +2,11 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import { compare } from "bcrypt";
-import { getUserByEmail, getUserByPhoneNumber } from "@/lib/auth-service";
+import {
+  getUserByEmail,
+  getUserByPhoneNumber,
+  type User,
+} from "@/lib/auth-service";
 import { CustomPrismaAdapter } from "@/lib/custom-prisma-adapter";
 
 export const authOptions: NextAuthOptions = {
@@ -53,7 +57,7 @@ export const authOptions: NextAuthOptions = {
             phoneNumber: credentials.phoneNumber,
           });
 
-          let user = null;
+          let user: User | null = null;
 
           if (credentials.email) {
             user = await getUserByEmail(credentials.email);
@@ -120,6 +124,13 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, user, account }) {
+      console.log("🔐 JWT Callback appelé:", {
+        hasUser: !!user,
+        hasAccount: !!account,
+        tokenId: token.id,
+        tokenEmail: token.email,
+      });
+
       // Lors de la première connexion, stocker les données utilisateur dans le token
       if (user) {
         token.id = user.id;
@@ -127,41 +138,74 @@ export const authOptions: NextAuthOptions = {
         token.email = user.email;
         token.name = user.name;
 
-        // Ajouter des logs pour déboguer
-        console.log("JWT Callback - User:", { id: user.id, role: user.role });
-        console.log("JWT Callback - Token après mise à jour:", token);
+        console.log("🔐 JWT Callback - User connecté:", {
+          id: user.id,
+          role: user.role,
+          email: user.email,
+          name: user.name,
+        });
       }
 
       // S'assurer que l'ID est toujours présent
       if (!token.id && token.email) {
-        // Si l'ID est manquant mais que l'email est présent, récupérer l'utilisateur
-        const user = await getUserByEmail(token.email as string);
-        if (user) {
-          token.id = user.id || user._id?.toString();
-          console.log("JWT Callback - ID récupéré depuis l'email:", token.id);
+        console.log(
+          "🔐 JWT Callback - Récupération de l'ID depuis l'email:",
+          token.email
+        );
+        try {
+          const user = await getUserByEmail(token.email as string);
+          if (user) {
+            const userId = user.id || user._id?.toString();
+            if (userId) {
+              token.id = userId;
+              token.role = user.role || "PARTICIPANT";
+              console.log("🔐 JWT Callback - ID récupéré:", token.id);
+            }
+          }
+        } catch (error) {
+          console.error(
+            "🔐 JWT Callback - Erreur lors de la récupération de l'utilisateur:",
+            error
+          );
         }
       }
+
+      console.log("🔐 JWT Callback - Token final:", {
+        id: token.id,
+        role: token.role,
+        email: token.email,
+        name: token.name,
+      });
 
       return token;
     },
     async session({ session, token }) {
+      console.log("🔐 Session Callback appelé:", {
+        hasToken: !!token,
+        tokenId: token.id,
+        sessionUserExists: !!session.user,
+      });
+
       // S'assurer que les données du token sont transmises à la session
       if (token && session.user) {
-        session.user.id = token.id as string;
-        session.user.role = (token.role as string) || "PARTICIPANT";
-        session.user.email = token.email as string;
-        session.user.name = token.name as string;
+        // Vérifier que token.id existe avant de l'assigner
+        const userId = (token.id as string) || (token.sub as string) || "";
+        if (userId) {
+          session.user.id = userId;
+        }
 
-        // Ajouter des logs pour déboguer
-        console.log("Session Callback - Token:", {
-          id: token.id,
-          role: token.role,
+        session.user.role = (token.role as string) || "PARTICIPANT";
+        session.user.email = (token.email as string) || "";
+        session.user.name = (token.name as string) || "";
+
+        console.log("🔐 Session Callback - Session mise à jour:", {
+          id: session.user.id,
+          role: session.user.role,
+          email: session.user.email,
+          name: session.user.name,
         });
-        console.log(
-          "Session Callback - Session après mise à jour:",
-          session.user
-        );
       }
+
       return session;
     },
     async redirect({ url, baseUrl }) {

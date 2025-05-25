@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { updateUser } from "@/lib/auth-service";
+import { db } from "@/lib/database-service";
 
 export async function PUT(request: Request) {
   try {
@@ -37,8 +37,8 @@ export async function PUT(request: Request) {
 
     console.log("Données filtrées pour mise à jour:", updateData);
 
-    // Mettre à jour l'utilisateur dans MongoDB
-    const updatedUser = await updateUser(session.user.id, updateData);
+    // Mettre à jour l'utilisateur
+    const updatedUser = await db.users.updateById(session.user.id, updateData);
 
     if (!updatedUser) {
       return NextResponse.json(

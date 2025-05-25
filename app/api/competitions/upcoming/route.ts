@@ -1,44 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { db } from "@/lib/database-service";
 
 export async function GET(request: NextRequest) {
   try {
-    const competitions = await prisma.competition.findMany({
-      where: {
-        status: {
-          in: ["DRAFT", "OPEN"],
-        },
-        registrationDeadline: {
-          gte: new Date(),
-        },
-      },
-      include: {
-        organizer: {
-          select: {
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        },
-        _count: {
-          select: {
-            participations: {
-              where: {
-                status: "ACCEPTED",
-              },
-            },
-          },
-        },
-      },
-      orderBy: {
-        startDate: "asc",
-      },
-      take: 6,
-    });
+    const competitions = await db.competitions.findUpcoming(6);
 
-    const formattedCompetitions = competitions.map((comp) => {
+    const formattedCompetitions = competitions.map((comp: any) => {
       const now = new Date();
       const startDate = comp.startDate ? new Date(comp.startDate) : null;
       const registrationDeadline = new Date(comp.registrationDeadline);
@@ -58,11 +25,8 @@ export async function GET(request: NextRequest) {
         startDate: comp.startDate,
         registrationDeadline: comp.registrationDeadline,
         maxParticipants: comp.maxParticipants,
-        currentParticipants: comp._count.participations,
-        organizer:
-          `${comp.organizer.firstName || ""} ${
-            comp.organizer.lastName || ""
-          }`.trim() || "Organisateur",
+        currentParticipants: comp.currentParticipants || 0,
+        organizer: comp.organizerName || "Organisateur",
         status: comp.status,
         daysUntilStart,
         isUpcoming:

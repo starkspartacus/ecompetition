@@ -1,88 +1,74 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import prisma from "@/lib/prisma";
+import { db } from "@/lib/database-service";
 
-export async function POST(req: Request) {
+export async function POST(request: NextRequest) {
   try {
-    // Utiliser getServerSession avec authOptions
     const session = await getServerSession(authOptions);
 
     if (!session) {
-      return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
+    // Vérifier si l'utilisateur est un participant
     if (session.user.role !== "PARTICIPANT") {
       return NextResponse.json(
-        {
-          message: "Seuls les participants peuvent rejoindre des compétitions",
-        },
+        { error: "Seuls les participants peuvent rejoindre des compétitions" },
         { status: 403 }
       );
     }
 
-    const body = await req.json();
-    const { competitionId } = body;
+    const data = await request.json();
 
-    // Vérifier si la compétition existe
-    const competition = await prisma?.competition.findUnique({
-      where: {
-        id: competitionId,
-      },
-    });
+    // Validation des données
+    if (!data.uniqueCode) {
+      return NextResponse.json(
+        { error: "Code unique manquant" },
+        { status: 400 }
+      );
+    }
+
+    // Récupérer la compétition par son code unique
+    const competition = await db.competitions.findByUniqueCode(data.uniqueCode);
 
     if (!competition) {
       return NextResponse.json(
-        { message: "Compétition non trouvée" },
+        { error: "Compétition non trouvée" },
         { status: 404 }
       );
     }
 
-    // Vérifier si la date limite d'inscription est dépassée
-    if (new Date() > new Date(competition.registrationDeadline)) {
+    // Vérifier si la compétition est ouverte aux inscriptions
+    const now = new Date();
+    if (
+      now < competition.registrationStartDate ||
+      now > competition.registrationEndDate
+    ) {
       return NextResponse.json(
-        { message: "La date limite d'inscription est dépassée" },
+        {
+          error: "Les inscriptions pour cette compétition ne sont pas ouvertes",
+        },
         { status: 400 }
       );
     }
 
-    // Vérifier si le participant a déjà fait une demande
-    const existingParticipation = await prisma?.participation.findFirst({
-      where: {
-        competitionId,
-        participantId: session.user.id,
-      },
+    // Créer la participation
+    const participation = await db.participations.create({
+      competitionId: competition.id,
+      participantId: session.user.id,
+      status: "PENDING",
+      registrationDate: new Date(),
     });
 
-    if (existingParticipation) {
-      return NextResponse.json(
-        { message: "Vous avez déjà fait une demande pour cette compétition" },
-        { status: 400 }
-      );
-    }
-
-    // Créer la demande de participation
-    const participation = await prisma?.participation.create({
-      data: {
-        competitionId,
-        participantId: session.user.id,
-        status: "PENDING",
-      },
+    return NextResponse.json({
+      message: "Demande de participation envoyée avec succès",
+      participation,
     });
-
-    return NextResponse.json(
-      {
-        message: "Demande de participation envoyée avec succès",
-        participation,
-      },
-      { status: 201 }
-    );
   } catch (error) {
     console.error("Erreur lors de la demande de participation:", error);
     return NextResponse.json(
-      {
-        message: "Une erreur est survenue lors de la demande de participation",
-      },
+      { error: "Erreur lors de la demande de participation" },
       { status: 500 }
     );
   }

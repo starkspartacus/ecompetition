@@ -1,17 +1,252 @@
-import { getDb } from "@/lib/mongodb";
+import { userModel, type UserDocument } from "@/lib/models/user-model";
 import { ObjectId } from "mongodb";
 
-/**
- * Vérifie si un email existe déjà dans la base de données
- * @param email Email à vérifier
- * @returns true si l'email existe, false sinon
- */
+export interface User {
+  id?: string;
+  _id?: ObjectId;
+  email: string;
+  password?: string;
+  firstName: string;
+  lastName: string;
+  phoneNumber?: string;
+  role: "PARTICIPANT" | "ORGANIZER" | "ADMIN";
+  country?: string;
+  city?: string;
+  commune?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export async function getUserByEmail(email: string): Promise<User | null> {
+  try {
+    console.log("🔍 Recherche utilisateur par email:", email);
+
+    const user = await userModel.findByEmail(email);
+
+    if (!user || !user._id) {
+      console.log("❌ Utilisateur non trouvé pour l'email:", email);
+      return null;
+    }
+
+    console.log("✅ Utilisateur trouvé:", {
+      id: user._id.toString(),
+      email: user.email,
+      role: user.role,
+      firstName: user.firstName,
+      lastName: user.lastName,
+    });
+
+    return {
+      id: user._id.toString(),
+      _id: user._id,
+      email: user.email,
+      password: user.password,
+      firstName: user.firstName || "",
+      lastName: user.lastName || "",
+      phoneNumber: user.phoneNumber,
+      role: user.role || "PARTICIPANT",
+      country: user.country,
+      city: user.city,
+      commune: user.commune,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  } catch (error) {
+    console.error("❌ Erreur lors de la recherche par email:", error);
+    return null;
+  }
+}
+
+export async function getUserByPhoneNumber(
+  phoneNumber: string
+): Promise<User | null> {
+  try {
+    console.log("🔍 Recherche utilisateur par téléphone:", phoneNumber);
+
+    const user = await userModel.findByPhoneNumber(phoneNumber);
+
+    if (!user || !user._id) {
+      console.log("❌ Utilisateur non trouvé pour le téléphone:", phoneNumber);
+      return null;
+    }
+
+    console.log("✅ Utilisateur trouvé:", {
+      id: user._id.toString(),
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+      firstName: user.firstName,
+      lastName: user.lastName,
+    });
+
+    return {
+      id: user._id.toString(),
+      _id: user._id,
+      email: user.email,
+      password: user.password,
+      firstName: user.firstName || "",
+      lastName: user.lastName || "",
+      phoneNumber: user.phoneNumber,
+      role: user.role || "PARTICIPANT",
+      country: user.country,
+      city: user.city,
+      commune: user.commune,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  } catch (error) {
+    console.error("❌ Erreur lors de la recherche par téléphone:", error);
+    return null;
+  }
+}
+
+export async function getUserById(id: string): Promise<User | null> {
+  try {
+    console.log("🔍 Recherche utilisateur par ID:", id);
+
+    if (!ObjectId.isValid(id)) {
+      console.log("❌ ID invalide:", id);
+      return null;
+    }
+
+    const user = await userModel.findById(id);
+
+    if (!user || !user._id) {
+      console.log("❌ Utilisateur non trouvé pour l'ID:", id);
+      return null;
+    }
+
+    console.log("✅ Utilisateur trouvé:", {
+      id: user._id.toString(),
+      email: user.email,
+      role: user.role,
+      firstName: user.firstName,
+      lastName: user.lastName,
+    });
+
+    return {
+      id: user._id.toString(),
+      _id: user._id,
+      email: user.email,
+      password: user.password,
+      firstName: user.firstName || "",
+      lastName: user.lastName || "",
+      phoneNumber: user.phoneNumber,
+      role: user.role || "PARTICIPANT",
+      country: user.country,
+      city: user.city,
+      commune: user.commune,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  } catch (error) {
+    console.error("❌ Erreur lors de la recherche par ID:", error);
+    return null;
+  }
+}
+
+export async function createUser(
+  userData: Omit<User, "id" | "_id" | "createdAt" | "updatedAt">
+): Promise<User | null> {
+  try {
+    console.log("🔨 Création d'un nouvel utilisateur:", userData.email);
+
+    const user = await userModel.createUser({
+      email: userData.email,
+      password: userData.password || "",
+      firstName: userData.firstName,
+      lastName: userData.lastName,
+      phoneNumber: userData.phoneNumber,
+      role: userData.role || "PARTICIPANT",
+      country: userData.country,
+      city: userData.city,
+      commune: userData.commune,
+    });
+
+    if (!user || !user._id) {
+      console.error("❌ Échec de la création de l'utilisateur");
+      return null;
+    }
+
+    console.log("✅ Utilisateur créé avec succès:", user._id.toString());
+
+    return {
+      id: user._id.toString(),
+      _id: user._id,
+      email: user.email,
+      password: user.password,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+      country: user.country,
+      city: user.city,
+      commune: user.commune,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  } catch (error) {
+    console.error("❌ Erreur lors de la création de l'utilisateur:", error);
+    return null;
+  }
+}
+
+export async function updateUser(
+  id: string,
+  userData: Partial<User>
+): Promise<User | null> {
+  try {
+    console.log("🔄 Mise à jour de l'utilisateur:", id);
+
+    if (!ObjectId.isValid(id)) {
+      console.log("❌ ID invalide:", id);
+      return null;
+    }
+
+    // Préparer les données de mise à jour
+    const updateData: Partial<UserDocument> = {};
+
+    if (userData.email) updateData.email = userData.email;
+    if (userData.firstName) updateData.firstName = userData.firstName;
+    if (userData.lastName) updateData.lastName = userData.lastName;
+    if (userData.phoneNumber) updateData.phoneNumber = userData.phoneNumber;
+    if (userData.role) updateData.role = userData.role;
+    if (userData.country) updateData.country = userData.country;
+    if (userData.city) updateData.city = userData.city;
+    if (userData.commune) updateData.commune = userData.commune;
+
+    const user = await userModel.updateById(id, updateData);
+
+    if (!user || !user._id) {
+      console.log("❌ Utilisateur non trouvé pour la mise à jour:", id);
+      return null;
+    }
+
+    console.log("✅ Utilisateur mis à jour avec succès");
+
+    return {
+      id: user._id.toString(),
+      _id: user._id,
+      email: user.email,
+      password: user.password,
+      firstName: user.firstName || "",
+      lastName: user.lastName || "",
+      phoneNumber: user.phoneNumber,
+      role: user.role || "PARTICIPANT",
+      country: user.country,
+      city: user.city,
+      commune: user.commune,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  } catch (error) {
+    console.error("❌ Erreur lors de la mise à jour de l'utilisateur:", error);
+    return null;
+  }
+}
+
 export async function checkEmailExists(email: string): Promise<boolean> {
   try {
-    const db = await getDb();
-    const usersCollection = db.collection("User");
-
-    const user = await usersCollection.findOne({ email: email.toLowerCase() });
+    const user = await userModel.findByEmail(email);
     return !!user;
   } catch (error) {
     console.error("Erreur lors de la vérification de l'email:", error);
@@ -19,32 +254,22 @@ export async function checkEmailExists(email: string): Promise<boolean> {
   }
 }
 
-/**
- * Vérifie si un numéro de téléphone existe déjà dans la base de données
- * @param phoneNumber Numéro de téléphone à vérifier
- * @returns true si le numéro existe, false sinon
- */
 export async function checkPhoneNumberExists(
   phoneNumber: string
 ): Promise<boolean> {
   try {
-    const db = await getDb();
-    const usersCollection = db.collection("User");
-
-    // Nettoyer le numéro de téléphone
     const cleanedNumber = phoneNumber.replace(/\s+/g, "").trim();
 
-    // Rechercher avec et sans le préfixe "+"
-    const user = await usersCollection.findOne({
-      $or: [
-        { phoneNumber: cleanedNumber },
-        {
-          phoneNumber: cleanedNumber.startsWith("+")
-            ? cleanedNumber.substring(1)
-            : `+${cleanedNumber}`,
-        },
-      ],
-    });
+    // Chercher avec le numéro tel quel
+    let user = await userModel.findByPhoneNumber(cleanedNumber);
+
+    // Si pas trouvé, essayer avec/sans le préfixe +
+    if (!user) {
+      const alternativeNumber = cleanedNumber.startsWith("+")
+        ? cleanedNumber.substring(1)
+        : `+${cleanedNumber}`;
+      user = await userModel.findByPhoneNumber(alternativeNumber);
+    }
 
     return !!user;
   } catch (error) {
@@ -56,238 +281,33 @@ export async function checkPhoneNumberExists(
   }
 }
 
-/**
- * Crée un nouvel utilisateur dans la base de données
- * @param userData Données de l'utilisateur à créer
- * @returns L'utilisateur créé
- */
-export async function createUser(userData: any) {
+// Fonction utilitaire pour vérifier un mot de passe
+export async function verifyPassword(
+  email: string,
+  password: string
+): Promise<User | null> {
   try {
-    const db = await getDb();
-    const usersCollection = db.collection("User");
+    const user = await userModel.verifyPassword(email, password);
 
-    // Préparer les données utilisateur
-    const newUser = {
-      ...userData,
-      email: userData.email.toLowerCase(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    if (!user || !user._id) return null;
 
-    // Insérer l'utilisateur
-    const result = await usersCollection.insertOne(newUser);
-
-    // Récupérer l'utilisateur créé avec son ID
     return {
-      ...newUser,
-      id: result.insertedId.toString(),
-      _id: result.insertedId,
+      id: user._id.toString(),
+      _id: user._id,
+      email: user.email,
+      password: user.password,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+      country: user.country,
+      city: user.city,
+      commune: user.commune,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
     };
   } catch (error) {
-    console.error("Erreur lors de la création de l'utilisateur:", error);
-    throw new Error("Erreur lors de la création de l'utilisateur");
-  }
-}
-
-export async function getUserByEmail(email: string) {
-  try {
-    const db = await getDb();
-    const usersCollection = db.collection("User");
-
-    console.log("Recherche de l'utilisateur par email:", email);
-
-    const user = await usersCollection.findOne({ email: email.toLowerCase() });
-
-    if (user) {
-      // S'assurer que l'ID est une chaîne
-      const userId = user._id ? user._id.toString() : user.id;
-
-      console.log("Utilisateur trouvé:", {
-        id: userId,
-        email: user.email,
-        role: user.role,
-      });
-
-      return {
-        ...user,
-        id: userId,
-        _id: user._id,
-      };
-    }
-
-    console.log("Aucun utilisateur trouvé avec l'email:", email);
+    console.error("❌ Erreur lors de la vérification du mot de passe:", error);
     return null;
-  } catch (error) {
-    console.error(
-      "Erreur lors de la recherche de l'utilisateur par email:",
-      error
-    );
-    return null;
-  }
-}
-
-export async function getUserByPhoneNumber(phoneNumber: string) {
-  try {
-    const db = await getDb();
-    const usersCollection = db.collection("User");
-
-    // Nettoyer le numéro de téléphone
-    const cleanedNumber = phoneNumber.replace(/\s+/g, "").trim();
-
-    console.log("Recherche de l'utilisateur par téléphone:", cleanedNumber);
-
-    // Rechercher avec et sans le préfixe "+"
-    const user = await usersCollection.findOne({
-      $or: [
-        { phoneNumber: cleanedNumber },
-        {
-          phoneNumber: cleanedNumber.startsWith("+")
-            ? cleanedNumber.substring(1)
-            : `+${cleanedNumber}`,
-        },
-      ],
-    });
-
-    if (user) {
-      // S'assurer que l'ID est une chaîne
-      const userId = user._id ? user._id.toString() : user.id;
-
-      console.log("Utilisateur trouvé:", {
-        id: userId,
-        phoneNumber: user.phoneNumber,
-        role: user.role,
-      });
-
-      return {
-        ...user,
-        id: userId,
-        _id: user._id,
-      };
-    }
-
-    console.log("Aucun utilisateur trouvé avec le numéro:", cleanedNumber);
-    return null;
-  } catch (error) {
-    console.error(
-      "Erreur lors de la recherche de l'utilisateur par téléphone:",
-      error
-    );
-    return null;
-  }
-}
-
-export async function getUserById(id: string) {
-  try {
-    const db = await getDb();
-    const usersCollection = db.collection("User");
-
-    console.log("Recherche de l'utilisateur par ID:", id);
-
-    let user = null;
-
-    // Essayer d'abord avec ObjectId si c'est un ID MongoDB valide
-    if (ObjectId.isValid(id)) {
-      user = await usersCollection.findOne({ _id: new ObjectId(id) });
-    }
-
-    // Si non trouvé, essayer avec l'ID comme chaîne
-    if (!user) {
-      user = await usersCollection.findOne({ id: id });
-    }
-
-    if (user) {
-      // S'assurer que l'ID est une chaîne
-      const userId = user._id ? user._id.toString() : user.id;
-
-      console.log("Utilisateur trouvé:", {
-        id: userId,
-        email: user.email,
-        role: user.role,
-      });
-
-      return {
-        ...user,
-        id: userId,
-        _id: user._id,
-      };
-    }
-
-    console.log("Aucun utilisateur trouvé avec l'ID:", id);
-    return null;
-  } catch (error) {
-    console.error(
-      "Erreur lors de la recherche de l'utilisateur par ID:",
-      error
-    );
-    return null;
-  }
-}
-
-/**
- * Met à jour un utilisateur dans la base de données
- * @param id ID de l'utilisateur à mettre à jour
- * @param updateData Données à mettre à jour
- * @returns L'utilisateur mis à jour
- */
-export async function updateUser(id: string, updateData: any) {
-  try {
-    const db = await getDb();
-    const usersCollection = db.collection("User");
-
-    console.log(
-      "Mise à jour de l'utilisateur:",
-      id,
-      "avec les données:",
-      updateData
-    );
-
-    // Ajouter la date de mise à jour
-    const dataWithTimestamp = {
-      ...updateData,
-      updatedAt: new Date(),
-    };
-
-    let result = null;
-
-    // Essayer d'abord avec ObjectId si c'est un ID MongoDB valide
-    if (ObjectId.isValid(id)) {
-      result = await usersCollection.findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: dataWithTimestamp },
-        { returnDocument: "after" }
-      );
-    }
-
-    // Si non trouvé, essayer avec l'ID comme chaîne
-    if (!result?.value) {
-      result = await usersCollection.findOneAndUpdate(
-        { id: id },
-        { $set: dataWithTimestamp },
-        { returnDocument: "after" }
-      );
-    }
-
-    if (result?.value) {
-      const user = result.value;
-      // S'assurer que l'ID est une chaîne
-      const userId = user._id ? user._id.toString() : user.id;
-
-      console.log("Utilisateur mis à jour avec succès:", {
-        id: userId,
-        email: user.email,
-      });
-
-      return {
-        ...user,
-        id: userId,
-        _id: user._id,
-      };
-    }
-
-    console.log("Aucun utilisateur trouvé pour la mise à jour avec l'ID:", id);
-    return null;
-  } catch (error) {
-    console.error("Erreur lors de la mise à jour de l'utilisateur:", error);
-    throw new Error("Erreur lors de la mise à jour de l'utilisateur");
   }
 }

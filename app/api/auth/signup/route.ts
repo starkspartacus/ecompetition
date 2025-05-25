@@ -1,10 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import {
-  createUser,
-  checkEmailExists,
-  checkPhoneNumberExists,
-} from "@/lib/auth-service";
+import { db } from "@/lib/database-service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,7 +31,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Vérifier si l'email existe déjà
-    const emailAlreadyExists = await checkEmailExists(data.email);
+    const emailAlreadyExists = await db.users.findByEmail(data.email);
     if (emailAlreadyExists) {
       console.error("Email déjà utilisé:", data.email);
       return NextResponse.json(
@@ -46,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     // Vérifier si le numéro de téléphone existe déjà (s'il est fourni)
     if (data.phoneNumber) {
-      const phoneNumberAlreadyExists = await checkPhoneNumberExists(
+      const phoneNumberAlreadyExists = await db.users.findByPhoneNumber(
         data.phoneNumber
       );
       if (phoneNumberAlreadyExists) {
@@ -65,22 +61,22 @@ export async function POST(request: NextRequest) {
     const salt = bcrypt.genSaltSync(10);
     const hashedPassword = bcrypt.hashSync(data.password, salt);
 
-    // Créer l'utilisateur avec le service
-    const user = await createUser({
+    // Créer l'utilisateur
+    const user = await db.users.create({
       ...data,
       password: hashedPassword,
     });
 
-    console.log("Utilisateur créé avec succès:", user.id);
+    console.log("Utilisateur créé avec succès:", user?.id);
     return NextResponse.json({
       success: true,
       message: "Compte créé avec succès",
       user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        role: user.role,
+        id: user?.id,
+        firstName: user?.firstName,
+        lastName: user?.lastName,
+        email: user?.email,
+        role: user?.role,
       },
     });
   } catch (error) {

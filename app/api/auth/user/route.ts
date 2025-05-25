@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getUserById, updateUser } from "@/lib/auth-service";
+import { db } from "@/lib/database-service";
 
 export async function GET() {
   try {
@@ -17,7 +17,7 @@ export async function GET() {
     );
 
     // Récupérer les données complètes de l'utilisateur depuis MongoDB
-    const user = await getUserById(session.user.id);
+    const user = await db.users.findById(session.user.id);
 
     if (!user) {
       return NextResponse.json(
@@ -35,9 +35,6 @@ export async function GET() {
       firstName: userWithoutPassword.firstName,
       lastName: userWithoutPassword.lastName,
       role: userWithoutPassword.role,
-      countryCode: userWithoutPassword.countryCode,
-      city: userWithoutPassword.city,
-      commune: userWithoutPassword.commune,
     });
 
     return NextResponse.json({ user: userWithoutPassword });
@@ -87,8 +84,8 @@ export async function PUT(request: Request) {
 
     console.log("Données filtrées pour mise à jour:", updateData);
 
-    // Mettre à jour l'utilisateur dans MongoDB
-    const updatedUser = await updateUser(session.user.id, updateData);
+    // Mettre à jour l'utilisateur
+    const updatedUser = await db.users.updateById(session.user.id, updateData);
 
     if (!updatedUser) {
       return NextResponse.json(
@@ -100,13 +97,7 @@ export async function PUT(request: Request) {
     // Retirer les informations sensibles
     const { password, ...userWithoutPassword } = updatedUser as any;
 
-    console.log("Utilisateur mis à jour avec succès:", {
-      id: userWithoutPassword.id,
-      email: userWithoutPassword.email,
-      countryCode: userWithoutPassword.countryCode,
-      city: userWithoutPassword.city,
-      commune: userWithoutPassword.commune,
-    });
+    console.log("Utilisateur mis à jour avec succès");
 
     return NextResponse.json({
       user: userWithoutPassword,

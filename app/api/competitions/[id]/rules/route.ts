@@ -1,8 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import prisma from "@/lib/prisma";
-import { updateCompetitionRules } from "@/lib/db-helpers";
+import { db } from "@/lib/database-service";
 
 export async function PUT(
   request: NextRequest,
@@ -19,14 +18,7 @@ export async function PUT(
     const { rules } = await request.json();
 
     // Vérifier si l'utilisateur est l'organisateur de la compétition
-    const competition = await prisma.competition.findUnique({
-      where: {
-        id,
-      },
-      select: {
-        organizerId: true,
-      },
-    });
+    const competition = await db.competitions.findById(id);
 
     if (!competition) {
       return NextResponse.json(
@@ -46,7 +38,7 @@ export async function PUT(
     }
 
     // Mettre à jour les règles
-    const updatedCompetition = await updateCompetitionRules(id, rules);
+    const updatedCompetition = await db.competitions.updateById(id, { rules });
 
     return NextResponse.json(updatedCompetition);
   } catch (error: any) {
@@ -62,14 +54,7 @@ export async function GET(
   try {
     const { id } = params;
 
-    const competition = await prisma.competition.findUnique({
-      where: {
-        id,
-      },
-      select: {
-        rules: true,
-      },
-    });
+    const competition = await db.competitions.findById(id);
 
     if (!competition) {
       return NextResponse.json(

@@ -1,10 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import {
-  getUserNotifications,
-  countUnreadNotifications,
-} from "@/lib/notification-service";
+import { db } from "@/lib/database-service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,26 +17,25 @@ export async function GET(request: NextRequest) {
     const unreadOnly = searchParams.get("unreadOnly") === "true";
 
     // Récupérer les notifications
-    const notificationsResult = await getUserNotifications(session.user.id, {
-      limit,
-      skip,
-      unreadOnly,
-    });
-
-    if (!notificationsResult.success) {
-      return NextResponse.json(
-        { error: "Erreur lors de la récupération des notifications" },
-        { status: 500 }
-      );
-    }
+    const { notifications, total } = await db.notifications.findByUserId(
+      session.user.id,
+      {
+        limit,
+        skip,
+        unreadOnly,
+      }
+    );
 
     // Compter les notifications non lues
-    const unreadCountResult = await countUnreadNotifications(session.user.id);
+    const unreadCount = await db.notifications.countUnreadByUserId(
+      session.user.id
+    );
 
     return NextResponse.json({
-      notifications: notificationsResult.notifications,
-      unreadCount: unreadCountResult.success ? unreadCountResult.count : 0,
-      hasMore: notificationsResult.notifications?.length === limit,
+      notifications,
+      unreadCount,
+      hasMore: notifications.length === limit,
+      total,
     });
   } catch (error) {
     console.error("Erreur lors de la récupération des notifications:", error);

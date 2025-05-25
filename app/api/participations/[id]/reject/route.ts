@@ -1,9 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getDb } from "@/lib/mongodb";
-import { createNotification } from "@/lib/notification-service";
-import { ObjectId } from "mongodb";
+import { db } from "@/lib/database-service";
 
 export async function POST(
   request: NextRequest,
@@ -42,12 +40,8 @@ export async function POST(
       rejectionReason
     );
 
-    const db = await getDb();
-
     // Récupérer la participation
-    const participation = await db
-      .collection("Participation")
-      .findOne({ _id: new ObjectId(participationId) });
+    const participation = await db.participations.findById(participationId);
 
     if (!participation) {
       return NextResponse.json(
@@ -57,9 +51,9 @@ export async function POST(
     }
 
     // Récupérer la compétition
-    const competition = await db
-      .collection("Competition")
-      .findOne({ _id: new ObjectId(participation.competitionId) });
+    const competition = await db.competitions.findById(
+      participation.competitionId
+    );
 
     if (!competition) {
       return NextResponse.json(
@@ -68,20 +62,8 @@ export async function POST(
       );
     }
 
-    // Récupérer le participant
-    const participant = await db
-      .collection("User")
-      .findOne({ _id: new ObjectId(participation.participantId) });
-
-    if (!participant) {
-      return NextResponse.json(
-        { error: "Participant non trouvé" },
-        { status: 404 }
-      );
-    }
-
     // Vérifier que l'organisateur est bien le propriétaire de la compétition
-    if (competition.organizerId.toString() !== session.user.id) {
+    if (competition.organizerId !== session.user.id) {
       return NextResponse.json(
         { error: "Vous n'êtes pas autorisé à rejeter cette participation" },
         { status: 403 }
@@ -97,26 +79,19 @@ export async function POST(
     }
 
     // Mettre à jour le statut de la participation
-    await db.collection("Participation").updateOne(
-      { _id: new ObjectId(participationId) },
+    const updatedParticipation = await db.participations.updateById(
+      participationId,
       {
-        $set: {
-          status: "REJECTED",
-          responseMessage: rejectionReason,
-          updatedAt: new Date(),
-        },
+        status: "REJECTED",
+        responseMessage: rejectionReason,
       }
     );
 
     console.log("❌ Participation rejetée:", participationId);
 
     // Créer une notification pour le participant
-    const participantName =
-      `${participant.firstName || ""} ${participant.lastName || ""}`.trim() ||
-      "Participant";
-
-    await createNotification({
-      userId: participant._id.toString(),
+    await db.notifications.create({
+      userId: participation.participantId,
       type: "PARTICIPATION_REJECTED",
       title: "Participation rejetée",
       message: `Votre demande de participation à "${competition.title}" a été rejetée. Raison: ${rejectionReason}`,
@@ -128,16 +103,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: "Participation rejetée avec succès",
-      participation: {
-        id: participationId,
-        status: "REJECTED",
-        competitionId: competition._id.toString(),
-        competitionTitle: competition.title,
-        participantId: participant._id.toString(),
-        participantName,
-        responseMessage: rejectionReason,
-        updatedAt: new Date(),
-      },
+      participation: updatedParticipation,
     });
   } catch (error) {
     console.error("❌ Erreur lors du rejet de la participation:", error);

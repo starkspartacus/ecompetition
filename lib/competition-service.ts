@@ -1,16 +1,24 @@
 import { nanoid } from "nanoid";
-import { CompetitionStatus } from "@/lib/prisma-schema";
-import { insertOne, find, findOne } from "@/lib/mongodb-client";
+import type { CompetitionStatus } from "@/lib/prisma-schema";
+import {
+  competitionModel,
+  type CompetitionDocument,
+  type CompetitionCategory,
+  type CompetitionType,
+} from "@/lib/models/competition-model";
+import { participationModel } from "@/lib/models/participation-model";
+import { teamModel } from "@/lib/models/team-model";
+import { matchModel } from "@/lib/models/match-model";
+import { ObjectId } from "mongodb";
 
 // Interface pour les paramètres de création de compétition
 interface CreateCompetitionParams {
   title: string;
   description?: string;
-  category: string;
+  category: CompetitionCategory;
   country: string;
   city: string;
   commune?: string;
-  address: string;
   venue: string;
   registrationStartDate: Date;
   registrationDeadline: Date;
@@ -26,49 +34,23 @@ interface CreateCompetitionParams {
   rules?: string[];
 }
 
-// Interface étendue pour la compétition avec tous les champs nécessaires
-export interface Competition {
-  id: string;
-  _id?: any;
-  title: string;
-  name?: string; // Alias pour title
-  description: string;
-  category: string;
-  country: string;
-  city: string;
-  commune?: string | null;
-  address: string;
-  venue: string;
-  location?: string; // Champ calculé
-  imageUrl?: string | null;
-  bannerUrl?: string | null;
-  registrationStartDate: Date;
-  registrationDeadline: Date;
-  registrationEndDate?: Date; // Alias pour registrationDeadline
-  startDate: Date;
-  endDate: Date;
-  maxParticipants: number;
-  status: CompetitionStatus;
-  tournamentFormat?: string | null;
-  isPublic: boolean;
-  rules: string[];
-  uniqueCode: string;
-  organizerId: string;
-  createdAt: Date;
-  updatedAt: Date;
-  participants: number;
-  currentParticipants?: number; // Alias pour participants
-  teams: number;
-  matches: number;
+// Interface pour les filtres de recherche
+interface CompetitionFilters {
+  country?: string;
+  category?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
 }
 
-// Type pour les requêtes MongoDB
-interface MongoQuery {
-  [key: string]: any;
-  $or?: Array<{ [key: string]: any }>;
-  $in?: any[];
-  $regex?: RegExp;
-  $options?: string;
+// Interface pour les statistiques de compétition
+interface CompetitionStats {
+  totalParticipants: number;
+  totalTeams: number;
+  totalMatches: number;
+  completedMatches: number;
+  upcomingMatches: number;
 }
 
 /**
@@ -76,109 +58,53 @@ interface MongoQuery {
  */
 export async function createCompetition(
   params: CreateCompetitionParams
-): Promise<Competition> {
+): Promise<CompetitionDocument> {
   try {
-    console.log("Création d'une compétition avec les paramètres:", {
-      title: params.title,
-      description: params.description ? "défini" : "non défini",
-      category: params.category,
-      country: params.country,
-      city: params.city,
-      commune: params.commune,
-      address: params.address,
-      venue: params.venue,
-      registrationStartDate: params.registrationStartDate,
-      registrationDeadline: params.registrationDeadline,
-      startDate: params.startDate,
-      endDate: params.endDate,
-      maxParticipants: params.maxParticipants,
-      imageUrl: params.imageUrl ? "défini" : "non défini",
-      bannerUrl: params.bannerUrl ? "défini" : "non défini",
-      organizerId: params.organizerId,
-      status: params.status || CompetitionStatus.OPEN,
-      tournamentFormat: params.tournamentFormat,
-      isPublic: params.isPublic,
-      rules: params.rules,
-    });
+    console.log("🏆 Création d'une compétition:", params.title);
 
-    // Vérifier les paramètres requis
-    if (
-      !params.title ||
-      !params.category ||
-      !params.country ||
-      !params.city ||
-      !params.address ||
-      !params.venue
-    ) {
-      throw new Error("Données manquantes");
-    }
-
-    if (
-      !params.registrationStartDate ||
-      !params.registrationDeadline ||
-      !params.startDate ||
-      !params.endDate
-    ) {
-      throw new Error("Dates manquantes");
-    }
-
-    if (!params.maxParticipants || params.maxParticipants < 2) {
-      throw new Error("Le nombre minimum de participants est 2");
-    }
-
-    if (!params.organizerId) {
-      throw new Error("L'ID de l'organisateur est requis");
-    }
+    // Validation des paramètres requis
+    validateCompetitionParams(params);
 
     // Générer un code unique pour la compétition
-    const uniqueCode = nanoid(8).toUpperCase();
+    const uniqueCode = await generateUniqueCode();
 
-    // Définir le statut par défaut à OPEN si non spécifié
-    const status = params.status || CompetitionStatus.OPEN;
-
-    // Créer la compétition directement avec MongoDB
-    const competition = await insertOne("Competition", {
-      title: params.title,
-      name: params.title, // Alias pour compatibilité
+    // Préparer les données de la compétition
+    const competitionData: Partial<CompetitionDocument> = {
+      name: params.title,
       description: params.description || "",
       category: params.category,
+      type: "TOURNAMENT" as CompetitionType,
+      status: (params.status as any) || "OPEN",
+      organizerId: new ObjectId(params.organizerId),
       country: params.country,
       city: params.city,
-      commune: params.commune || null,
-      address: params.address,
-      venue: params.venue,
-      location: `${params.address}, ${params.city}, ${params.country}`, // Champ calculé
-      imageUrl: params.imageUrl || null,
-      bannerUrl: params.bannerUrl || null,
-      registrationStartDate: params.registrationStartDate,
-      registrationDeadline: params.registrationDeadline,
-      registrationEndDate: params.registrationDeadline, // Alias pour compatibilité
+      commune: params.commune || undefined,
       startDate: params.startDate,
       endDate: params.endDate,
+      registrationDeadline: params.registrationDeadline,
       maxParticipants: params.maxParticipants,
-      status: status,
-      tournamentFormat: params.tournamentFormat || null,
+      minParticipants: 2,
       isPublic: params.isPublic !== undefined ? params.isPublic : true,
-      rules: params.rules || [],
-      uniqueCode,
-      organizerId: params.organizerId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      participants: 0,
-      currentParticipants: 0, // Alias pour compatibilité
-      teams: 0,
-      matches: 0,
-    });
+      requiresApproval: false,
+      venue: params.venue,
+      bannerImage: params.bannerUrl || undefined,
+      rules: params.rules?.join("\n") || "",
+    };
+
+    // Créer la compétition avec le modèle
+    const competition = await competitionModel.create(competitionData);
+
+    if (!competition) {
+      throw new Error("Échec de la création de la compétition");
+    }
 
     console.log("✅ Compétition créée avec succès:", {
-      id: competition.id,
-      title: competition.title,
-      uniqueCode: competition.uniqueCode,
-      isPublic: competition.isPublic,
+      id: competition._id,
+      name: competition.name,
       status: competition.status,
     });
 
-    return competition as Competition;
+    return competition;
   } catch (error) {
     console.error("❌ Erreur lors de la création de la compétition:", error);
     throw error;
@@ -190,65 +116,34 @@ export async function createCompetition(
  */
 export async function getCompetitionByIdOrCode(
   idOrCode: string
-): Promise<Competition | null> {
+): Promise<CompetitionDocument | null> {
   try {
-    console.log(`Recherche de la compétition avec ID/code: ${idOrCode}`);
+    console.log(`🔍 Recherche de la compétition: ${idOrCode}`);
 
-    // Essayer de trouver par ID
-    let competition = null;
-    try {
-      competition = await findOne("Competition", { _id: idOrCode });
-    } catch (error) {
-      // Ignorer l'erreur si l'ID n'est pas valide
+    let competition: CompetitionDocument | null = null;
+
+    // Essayer de trouver par ID si c'est un ObjectId valide
+    if (ObjectId.isValid(idOrCode)) {
+      competition = await competitionModel.findById(idOrCode);
     }
 
-    // Si non trouvé, essayer par code unique
+    // Si non trouvé, essayer par recherche dans la collection
     if (!competition) {
-      competition = await findOne("Competition", { uniqueCode: idOrCode });
-    }
-
-    // Si toujours non trouvé, essayer dans la collection "competitions" (minuscule)
-    if (!competition) {
-      try {
-        competition = await findOne("competitions", { _id: idOrCode });
-      } catch (error) {
-        // Ignorer l'erreur si l'ID n'est pas valide
-      }
-
-      if (!competition) {
-        competition = await findOne("competitions", { uniqueCode: idOrCode });
+      const competitions = await competitionModel.findMany({
+        name: { $regex: idOrCode, $options: "i" },
+      });
+      if (competitions.length > 0) {
+        competition = competitions[0];
       }
     }
 
     if (!competition) {
-      console.log(`❌ Compétition non trouvée avec ID/code: ${idOrCode}`);
+      console.log(`❌ Compétition non trouvée: ${idOrCode}`);
       return null;
     }
 
-    // Ajouter les champs calculés s'ils n'existent pas
-    if (!competition.name && competition.title) {
-      competition.name = competition.title;
-    }
-    if (
-      !competition.location &&
-      competition.address &&
-      competition.city &&
-      competition.country
-    ) {
-      competition.location = `${competition.address}, ${competition.city}, ${competition.country}`;
-    }
-    if (!competition.registrationEndDate && competition.registrationDeadline) {
-      competition.registrationEndDate = competition.registrationDeadline;
-    }
-    if (
-      competition.currentParticipants === undefined &&
-      competition.participants !== undefined
-    ) {
-      competition.currentParticipants = competition.participants;
-    }
-
-    console.log(`✅ Compétition trouvée: ${competition.title || "Sans titre"}`);
-    return competition as Competition;
+    console.log(`✅ Compétition trouvée: ${competition.name}`);
+    return competition;
   } catch (error) {
     console.error(
       "❌ Erreur lors de la récupération de la compétition:",
@@ -263,29 +158,21 @@ export async function getCompetitionByIdOrCode(
  */
 export async function getCompetitionsByOrganizerId(
   organizerId: string
-): Promise<Competition[]> {
+): Promise<CompetitionDocument[]> {
   try {
     console.log(
-      "Récupération des compétitions pour l'organisateur:",
+      "📋 Récupération des compétitions pour l'organisateur:",
       organizerId
     );
 
-    // Récupérer les compétitions directement avec MongoDB
-    const competitions = await find("Competition", { organizerId });
-
-    // Si aucune compétition n'est trouvée, essayer dans la collection "competitions" (minuscule)
-    if (competitions.length === 0) {
-      const altCompetitions = await find("competitions", { organizerId });
-      if (altCompetitions.length > 0) {
-        console.log(
-          `✅ ${altCompetitions.length} compétitions trouvées dans la collection "competitions"`
-        );
-        return normalizeCompetitions(altCompetitions);
-      }
+    if (!ObjectId.isValid(organizerId)) {
+      throw new Error("ID d'organisateur invalide");
     }
 
+    const competitions = await competitionModel.findByOrganizer(organizerId);
+
     console.log(`✅ ${competitions.length} compétitions trouvées`);
-    return normalizeCompetitions(competitions);
+    return competitions;
   } catch (error) {
     console.error("❌ Erreur lors de la récupération des compétitions:", error);
     throw error;
@@ -293,100 +180,47 @@ export async function getCompetitionsByOrganizerId(
 }
 
 /**
- * Récupère toutes les compétitions publiques
+ * Récupère toutes les compétitions publiques avec filtres
  */
 export async function getPublicCompetitions(
-  filters: any = {}
-): Promise<Competition[]> {
+  filters: CompetitionFilters = {}
+): Promise<{
+  competitions: CompetitionDocument[];
+  total: number;
+  page: number;
+  totalPages: number;
+}> {
   try {
     console.log(
-      "Récupération des compétitions publiques avec filtres:",
+      "🌍 Récupération des compétitions publiques avec filtres:",
       filters
     );
 
-    // Construire la requête de base
-    const query: MongoQuery = { isPublic: true };
+    const page = filters.page || 1;
+    const limit = filters.limit || 10;
 
-    // Ajouter les filtres si spécifiés
-    if (filters.country && filters.country !== "all") {
-      query.country = filters.country;
-    }
+    // Utiliser la méthode existante du modèle
+    const result = await competitionModel.findPublicCompetitions({
+      country: filters.country,
+      category: filters.category,
+      status: filters.status,
+      search: filters.search,
+      page,
+      limit,
+    });
 
-    if (filters.category && filters.category !== "all") {
-      query.category = filters.category;
-    }
+    const totalPages = Math.ceil(result.total / limit);
 
-    // Filtre par statut
-    if (filters.status && filters.status !== "all") {
-      if (filters.status === "COMING_SOON") {
-        // Pour "Prochainement", on cherche les compétitions en DRAFT
-        query.status = CompetitionStatus.DRAFT;
-      } else {
-        // Pour les autres statuts, utiliser directement la valeur
-        query.status = filters.status;
-      }
-    } else {
-      // Si aucun filtre de statut, exclure les CANCELLED
-      query.status = { $ne: CompetitionStatus.CANCELLED };
-    }
+    console.log(
+      `✅ ${result.competitions.length} compétitions publiques trouvées (${result.total} au total)`
+    );
 
-    // Filtre de recherche textuelle
-    if (filters.search) {
-      const searchRegex = new RegExp(filters.search, "i");
-      query.$or = [
-        { title: searchRegex },
-        { name: searchRegex },
-        { description: searchRegex },
-        { location: searchRegex },
-        { country: searchRegex },
-        { city: searchRegex },
-        { uniqueCode: filters.search }, // Recherche exacte pour le code
-      ];
-    }
-
-    console.log("Requête MongoDB:", JSON.stringify(query, null, 2));
-
-    // Récupérer les compétitions directement avec MongoDB
-    let competitions = await find("Competition", query);
-
-    // Si aucune compétition n'est trouvée, essayer dans la collection "competitions" (minuscule)
-    if (competitions.length === 0) {
-      console.log(
-        "Aucune compétition trouvée dans 'Competition', essai dans 'competitions'..."
-      );
-      const altCompetitions = await find("competitions", query);
-      if (altCompetitions.length > 0) {
-        console.log(
-          `✅ ${altCompetitions.length} compétitions trouvées dans la collection "competitions"`
-        );
-        competitions = altCompetitions;
-      }
-    }
-
-    // Si toujours aucune compétition et qu'on a des filtres spécifiques, essayer sans ces filtres
-    if (
-      competitions.length === 0 &&
-      (filters.country || filters.category || filters.status)
-    ) {
-      console.log(
-        "Aucune compétition trouvée avec filtres, essai sans filtres spécifiques..."
-      );
-      const baseQuery: MongoQuery = { isPublic: true };
-
-      // Garder uniquement le filtre de recherche s'il existe
-      if (filters.search) {
-        baseQuery.$or = query.$or;
-      }
-
-      competitions = await find("Competition", baseQuery);
-
-      if (competitions.length === 0) {
-        competitions = await find("competitions", baseQuery);
-      }
-    }
-
-    console.log(`✅ ${competitions.length} compétitions publiques trouvées`);
-    return normalizeCompetitions(competitions);
+    return {
+      competitions: result.competitions,
+      total: result.total,
+      page,
+      totalPages,
+    };
   } catch (error) {
     console.error(
       "❌ Erreur lors de la récupération des compétitions publiques:",
@@ -397,27 +231,307 @@ export async function getPublicCompetitions(
 }
 
 /**
- * Normalise les compétitions pour s'assurer que tous les champs nécessaires sont présents
+ * Met à jour une compétition
  */
-function normalizeCompetitions(competitions: any[]): Competition[] {
-  return competitions.map((comp) => {
-    // Ajouter les champs calculés s'ils n'existent pas
-    if (!comp.name && comp.title) {
-      comp.name = comp.title;
-    }
-    if (!comp.location && comp.address && comp.city && comp.country) {
-      comp.location = `${comp.address}, ${comp.city}, ${comp.country}`;
-    }
-    if (!comp.registrationEndDate && comp.registrationDeadline) {
-      comp.registrationEndDate = comp.registrationDeadline;
-    }
-    if (
-      comp.currentParticipants === undefined &&
-      comp.participants !== undefined
-    ) {
-      comp.currentParticipants = comp.participants;
+export async function updateCompetition(
+  competitionId: string,
+  updates: Partial<CompetitionDocument>,
+  organizerId: string
+): Promise<CompetitionDocument | null> {
+  try {
+    console.log(`📝 Mise à jour de la compétition: ${competitionId}`);
+
+    if (!ObjectId.isValid(competitionId)) {
+      throw new Error("ID de compétition invalide");
     }
 
-    return comp as Competition;
-  });
+    // Vérifier que la compétition existe et appartient à l'organisateur
+    const existingCompetition = await competitionModel.findById(competitionId);
+    if (!existingCompetition) {
+      throw new Error("Compétition non trouvée");
+    }
+
+    if (existingCompetition.organizerId.toString() !== organizerId) {
+      throw new Error("Accès non autorisé");
+    }
+
+    // Mettre à jour la compétition
+    const updatedCompetition = await competitionModel.updateById(
+      competitionId,
+      {
+        ...updates,
+        updatedAt: new Date(),
+      }
+    );
+
+    if (!updatedCompetition) {
+      throw new Error("Échec de la mise à jour");
+    }
+
+    console.log("✅ Compétition mise à jour avec succès");
+    return updatedCompetition;
+  } catch (error) {
+    console.error("❌ Erreur lors de la mise à jour de la compétition:", error);
+    throw error;
+  }
+}
+
+/**
+ * Supprime une compétition
+ */
+export async function deleteCompetition(
+  competitionId: string,
+  organizerId: string
+): Promise<boolean> {
+  try {
+    console.log(`🗑️ Suppression de la compétition: ${competitionId}`);
+
+    if (!ObjectId.isValid(competitionId)) {
+      throw new Error("ID de compétition invalide");
+    }
+
+    // Vérifier que la compétition existe et appartient à l'organisateur
+    const existingCompetition = await competitionModel.findById(competitionId);
+    if (!existingCompetition) {
+      throw new Error("Compétition non trouvée");
+    }
+
+    if (existingCompetition.organizerId.toString() !== organizerId) {
+      throw new Error("Accès non autorisé");
+    }
+
+    // Supprimer toutes les données liées
+    const competitionObjectId = new ObjectId(competitionId);
+
+    // Supprimer les participations
+    const participations = await participationModel.findByCompetition(
+      competitionId
+    );
+    for (const participation of participations) {
+      await participationModel.deleteById(participation._id!.toString());
+    }
+
+    // Supprimer les équipes
+    const teams = await teamModel.findByCompetition(competitionId);
+    for (const team of teams) {
+      await teamModel.deleteById(team._id!.toString());
+    }
+
+    // Supprimer les matchs
+    const matches = await matchModel.findByCompetition(competitionId);
+    for (const match of matches) {
+      await matchModel.deleteById(match._id!.toString());
+    }
+
+    // Supprimer la compétition
+    const deleted = await competitionModel.deleteById(competitionId);
+
+    console.log("✅ Compétition supprimée avec succès");
+    return deleted;
+  } catch (error) {
+    console.error("❌ Erreur lors de la suppression de la compétition:", error);
+    throw error;
+  }
+}
+
+/**
+ * Récupère les statistiques d'une compétition
+ */
+export async function getCompetitionStats(
+  competitionId: string
+): Promise<CompetitionStats> {
+  try {
+    console.log(`📊 Récupération des statistiques pour: ${competitionId}`);
+
+    if (!ObjectId.isValid(competitionId)) {
+      throw new Error("ID de compétition invalide");
+    }
+
+    // Récupérer les statistiques en parallèle
+    const [participations, teams, matches] = await Promise.all([
+      participationModel.findByCompetition(competitionId),
+      teamModel.findByCompetition(competitionId),
+      matchModel.findByCompetition(competitionId),
+    ]);
+
+    const completedMatches = matches.filter(
+      (match) => match.status === "COMPLETED"
+    ).length;
+    const upcomingMatches = matches.filter(
+      (match) => match.status === "SCHEDULED"
+    ).length;
+
+    const stats: CompetitionStats = {
+      totalParticipants: participations.length,
+      totalTeams: teams.length,
+      totalMatches: matches.length,
+      completedMatches,
+      upcomingMatches,
+    };
+
+    console.log("✅ Statistiques récupérées:", stats);
+    return stats;
+  } catch (error) {
+    console.error("❌ Erreur lors de la récupération des statistiques:", error);
+    throw error;
+  }
+}
+
+/**
+ * Récupère les compétitions à venir
+ */
+export async function getUpcomingCompetitions(
+  limit = 5
+): Promise<CompetitionDocument[]> {
+  try {
+    console.log(`📅 Récupération des ${limit} prochaines compétitions`);
+
+    const competitions = await competitionModel.findMany(
+      {
+        isPublic: true,
+        startDate: { $gte: new Date() },
+        status: { $in: ["OPEN", "ONGOING"] },
+      },
+      {
+        sort: { startDate: 1 },
+        limit,
+      }
+    );
+
+    console.log(`✅ ${competitions.length} compétitions à venir trouvées`);
+    return competitions;
+  } catch (error) {
+    console.error(
+      "❌ Erreur lors de la récupération des compétitions à venir:",
+      error
+    );
+    throw error;
+  }
+}
+
+/**
+ * Valide les paramètres de création de compétition
+ */
+function validateCompetitionParams(params: CreateCompetitionParams): void {
+  const requiredFields = [
+    "title",
+    "category",
+    "country",
+    "city",
+    "venue",
+    "registrationStartDate",
+    "registrationDeadline",
+    "startDate",
+    "endDate",
+    "maxParticipants",
+    "organizerId",
+  ];
+
+  for (const field of requiredFields) {
+    if (!params[field as keyof CreateCompetitionParams]) {
+      throw new Error(`Le champ ${field} est requis`);
+    }
+  }
+
+  // Validation des dates
+  const now = new Date();
+  if (params.registrationStartDate < now) {
+    throw new Error(
+      "La date de début d'inscription ne peut pas être dans le passé"
+    );
+  }
+
+  if (params.registrationDeadline <= params.registrationStartDate) {
+    throw new Error(
+      "La date limite d'inscription doit être après la date de début"
+    );
+  }
+
+  if (params.startDate <= params.registrationDeadline) {
+    throw new Error(
+      "La date de début de compétition doit être après la date limite d'inscription"
+    );
+  }
+
+  if (params.endDate <= params.startDate) {
+    throw new Error("La date de fin doit être après la date de début");
+  }
+
+  // Validation du nombre de participants
+  if (params.maxParticipants < 2) {
+    throw new Error("Le nombre minimum de participants est 2");
+  }
+
+  if (params.maxParticipants > 1000) {
+    throw new Error("Le nombre maximum de participants est 1000");
+  }
+
+  // Validation de l'ID organisateur
+  if (!ObjectId.isValid(params.organizerId)) {
+    throw new Error("ID d'organisateur invalide");
+  }
+}
+
+/**
+ * Génère un code unique pour la compétition
+ */
+async function generateUniqueCode(): Promise<string> {
+  let attempts = 0;
+  const maxAttempts = 10;
+
+  while (attempts < maxAttempts) {
+    const code = nanoid(8).toUpperCase();
+
+    // Vérifier l'unicité en cherchant dans la collection
+    const existing = await competitionModel.findMany({ name: code });
+    if (existing.length === 0) {
+      return code;
+    }
+
+    attempts++;
+  }
+
+  throw new Error("Impossible de générer un code unique");
+}
+
+// Interfaces pour la compatibilité avec l'ancien code
+export interface Competition extends Partial<CompetitionDocument> {
+  id: string;
+  title?: string;
+  location?: string;
+  registrationEndDate?: Date;
+  currentParticipants?: number;
+  participants?: number;
+  teams?: number;
+  matches?: number;
+  address?: string;
+}
+
+/**
+ * Normalise une compétition pour la compatibilité
+ */
+export function normalizeCompetition(
+  competition: CompetitionDocument
+): Competition {
+  return {
+    ...competition,
+    id: competition._id?.toString() || "",
+    title: competition.name,
+    location: `${competition.venue}, ${competition.city}, ${competition.country}`,
+    address: competition.venue,
+    registrationEndDate: competition.registrationDeadline,
+    currentParticipants: 0, // À calculer dynamiquement
+    participants: 0, // À calculer dynamiquement
+    teams: 0, // À calculer dynamiquement
+    matches: 0, // À calculer dynamiquement
+  };
+}
+
+/**
+ * Normalise un tableau de compétitions
+ */
+export function normalizeCompetitions(
+  competitions: CompetitionDocument[]
+): Competition[] {
+  return competitions.map(normalizeCompetition);
 }

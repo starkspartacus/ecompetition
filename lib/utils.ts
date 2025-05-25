@@ -1,31 +1,46 @@
-import { type ClassValue, clsx } from "clsx";
+import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { format } from "date-fns";
-import { fr } from "date-fns/locale";
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+/**
+ * Génère un code unique pour les compétitions
+ */
+export function generateUniqueCode(): string {
+  const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Caractères sans ambiguïté (pas de I, O, 0, 1)
+  const codeLength = 6;
+  let code = "";
 
-// Fonction pour générer un code unique pour les compétitions
-export function generateUniqueCode(length = 8): string {
-  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "";
-  const charactersLength = characters.length;
-
-  for (let i = 0; i < length; i++) {
-    result += characters.charAt(Math.floor(Math.random() * charactersLength));
+  for (let i = 0; i < codeLength; i++) {
+    const randomIndex = Math.floor(Math.random() * characters.length);
+    code += characters.charAt(randomIndex);
   }
 
-  return result;
+  return code;
 }
 
-// Fonction pour formater les dates
-export function formatDate(dateString: string | Date): string {
-  if (!dateString) return "";
+/**
+ * Formate une date au format local
+ */
+export function formatDate(date: Date | string): string {
+  if (!date) return "";
 
-  const date =
-    typeof dateString === "string" ? new Date(dateString) : dateString;
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
 
-  return format(date, "dd MMMM yyyy", { locale: fr });
+/**
+ * Formate un montant avec le symbole de la devise
+ */
+export function formatCurrency(amount: number, currency = "XOF"): string {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 0,
+  }).format(amount);
+}
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
 }
