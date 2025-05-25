@@ -30,9 +30,9 @@ export async function PUT(
       return NextResponse.json({ error: "Joueur non trouvé" }, { status: 404 });
     }
 
-    const team = await db.teams.findById(player.teamId);
+    const team = await db.teams.findById(player.teamId.toString());
 
-    if (!team || team.ownerId !== session.user.id) {
+    if (!team || team.captainId.toString() !== session.user.id) {
       return NextResponse.json(
         { error: "Vous n'êtes pas autorisé à modifier ce joueur" },
         { status: 403 }
@@ -90,9 +90,9 @@ export async function DELETE(
       return NextResponse.json({ error: "Joueur non trouvé" }, { status: 404 });
     }
 
-    const team = await db.teams.findById(player.teamId);
+    const team = await db.teams.findById(player.teamId.toString());
 
-    if (!team || team.ownerId !== session.user.id) {
+    if (!team || team.captainId.toString() !== session.user.id) {
       return NextResponse.json(
         { error: "Vous n'êtes pas autorisé à supprimer ce joueur" },
         { status: 403 }

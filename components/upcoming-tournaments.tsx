@@ -48,7 +48,11 @@ export function UpcomingTournaments() {
         throw new Error("Erreur lors du chargement des tournois");
       }
       const data = await response.json();
-      setTournaments(data);
+      // Ensure data is an array
+      const tournamentsData = Array.isArray(data)
+        ? data
+        : data?.competitions || data?.tournaments || [];
+      setTournaments(tournamentsData);
       setLastUpdate(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue");
@@ -173,7 +177,7 @@ export function UpcomingTournaments() {
         </div>
       </div>
 
-      {tournaments.length === 0 ? (
+      {Array.isArray(tournaments) && tournaments.length === 0 ? (
         <Card className="bg-white/10 backdrop-blur-sm border-white/20">
           <CardContent className="flex flex-col items-center justify-center p-6 text-center">
             <Trophy className="w-10 h-10 text-white/50 mb-3" />
@@ -193,79 +197,80 @@ export function UpcomingTournaments() {
         </Card>
       ) : (
         <div className="max-h-80 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/20 hover:scrollbar-thumb-white/30 space-y-3">
-          {tournaments.map((tournament) => (
-            <Card
-              key={tournament.id}
-              className="bg-white/10 backdrop-blur-sm border-white/20 hover:bg-white/15 transition-all duration-300"
-            >
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">
-                      {getCategoryIcon(tournament.category)}
-                    </span>
-                    <div>
-                      <CardTitle className="text-white text-sm leading-tight">
-                        {tournament.title}
-                      </CardTitle>
-                      <p className="text-white/70 text-xs">
-                        {tournament.category}
-                      </p>
+          {Array.isArray(tournaments) &&
+            tournaments.map((tournament) => (
+              <Card
+                key={tournament.id}
+                className="bg-white/10 backdrop-blur-sm border-white/20 hover:bg-white/15 transition-all duration-300"
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">
+                        {getCategoryIcon(tournament.category)}
+                      </span>
+                      <div>
+                        <CardTitle className="text-white text-sm leading-tight">
+                          {tournament.title}
+                        </CardTitle>
+                        <p className="text-white/70 text-xs">
+                          {tournament.category}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      {tournament.isUpcoming && (
+                        <Badge className="bg-orange-500 text-white animate-pulse text-xs px-2 py-0.5">
+                          {tournament.daysUntilStart === 1
+                            ? "Demain"
+                            : `${tournament.daysUntilStart}j`}
+                        </Badge>
+                      )}
+                      {tournament.isOpen && (
+                        <Badge className="bg-green-500 text-white text-xs px-2 py-0.5">
+                          Ouvert
+                        </Badge>
+                      )}
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    {tournament.isUpcoming && (
-                      <Badge className="bg-orange-500 text-white animate-pulse text-xs px-2 py-0.5">
-                        {tournament.daysUntilStart === 1
-                          ? "Demain"
-                          : `${tournament.daysUntilStart}j`}
-                      </Badge>
-                    )}
-                    {tournament.isOpen && (
-                      <Badge className="bg-green-500 text-white text-xs px-2 py-0.5">
-                        Ouvert
-                      </Badge>
-                    )}
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="space-y-1 text-xs">
+                    <div className="flex items-center gap-2 text-white/80">
+                      <MapPin className="w-3 h-3" />
+                      <span className="truncate">{tournament.location}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-white/80">
+                      <CalendarDays className="w-3 h-3" />
+                      <span>{formatDate(tournament.startDate)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-white/80">
+                      <Users className="w-3 h-3" />
+                      <span>
+                        {tournament.currentParticipants}/
+                        {tournament.maxParticipants}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="space-y-1 text-xs">
-                  <div className="flex items-center gap-2 text-white/80">
-                    <MapPin className="w-3 h-3" />
-                    <span className="truncate">{tournament.location}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-white/80">
-                    <CalendarDays className="w-3 h-3" />
-                    <span>{formatDate(tournament.startDate)}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-white/80">
-                    <Users className="w-3 h-3" />
-                    <span>
-                      {tournament.currentParticipants}/
-                      {tournament.maxParticipants}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                  <span className="text-white/60 text-xs">
-                    Par {tournament.organizer}
-                  </span>
-                  {tournament.isOpen && (
-                    <Link href={`/participant/competitions/${tournament.id}`}>
-                      <Button
-                        size="sm"
-                        className="bg-orange-500 hover:bg-orange-600 text-white h-6 px-2 text-xs"
-                      >
-                        Participer
-                      </Button>
-                    </Link>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                    <span className="text-white/60 text-xs">
+                      Par {tournament.organizer}
+                    </span>
+                    {tournament.isOpen && (
+                      <Link href={`/participant/competitions/${tournament.id}`}>
+                        <Button
+                          size="sm"
+                          className="bg-orange-500 hover:bg-orange-600 text-white h-6 px-2 text-xs"
+                        >
+                          Participer
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
         </div>
       )}
 

@@ -25,8 +25,9 @@ export interface CompetitionDocument extends BaseDocument {
   country?: string;
   city?: string;
   commune?: string;
-  startDate: Date;
-  endDate: Date;
+  startDateCompetition: Date;
+  endDateCompetition: Date;
+  registrationStartDate: Date;
   registrationDeadline: Date;
   maxParticipants?: number;
   minParticipants?: number;
@@ -38,8 +39,11 @@ export interface CompetitionDocument extends BaseDocument {
   requiresApproval: boolean;
   contactEmail?: string;
   contactPhone?: string;
+  address?: string;
+  imageUrl?: string;
+  bannerUrl?: string;
+  uniqueCode?: string;
   venue?: string;
-  bannerImage?: string;
 }
 
 export class CompetitionModel extends BaseModel<CompetitionDocument> {
@@ -58,8 +62,8 @@ export class CompetitionModel extends BaseModel<CompetitionDocument> {
         collection.createIndex({ type: 1 }),
         collection.createIndex({ country: 1 }),
         collection.createIndex({ city: 1 }),
-        collection.createIndex({ startDate: 1 }),
-        collection.createIndex({ endDate: 1 }),
+        collection.createIndex({ startDateCompetition: 1 }),
+        collection.createIndex({ endDateCompetition: 1 }),
         collection.createIndex({ registrationDeadline: 1 }),
         collection.createIndex({ isPublic: 1 }),
         collection.createIndex({ createdAt: -1 }),
@@ -83,6 +87,19 @@ export class CompetitionModel extends BaseModel<CompetitionDocument> {
       { organizerId: new ObjectId(organizerId) },
       { sort: { createdAt: -1 } }
     );
+  }
+
+  async findByUniqueCode(
+    uniqueCode: string
+  ): Promise<CompetitionDocument | null> {
+    try {
+      if (!uniqueCode) return null;
+
+      return this.findOne({ uniqueCode });
+    } catch (error) {
+      console.error("❌ Erreur lors de la recherche par code unique:", error);
+      return null;
+    }
   }
 
   async findPublicCompetitions(

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/database-service";
 import { uploadImage } from "@/lib/blob";
+import { ObjectId } from "mongodb";
 
 export async function GET(request: NextRequest) {
   try {
@@ -58,7 +59,13 @@ export async function GET(request: NextRequest) {
     if (code) {
       console.log("🔍 Recherche par code:", code);
 
-      const competition = await db.competitions.findByUniqueCode(code);
+      // Recherche par nom (utilisé comme code unique)
+      const competitions = await db.competitions.findMany({});
+      const competition = competitions.find(
+        (c) =>
+          c.name?.toLowerCase().includes(code.toLowerCase()) ||
+          c.description?.toLowerCase().includes(code.toLowerCase())
+      );
 
       if (!competition) {
         return NextResponse.json(
@@ -67,15 +74,65 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Enrichir avec les données de l'organisateur
+      let organizer = null;
+      try {
+        organizer = await db.users.findById(competition.organizerId.toString());
+      } catch (error) {
+        console.warn("⚠️ Impossible de récupérer l'organisateur:", error);
+      }
+
+      // Compter les participants acceptés
+      let acceptedParticipants = 0;
+      try {
+        const participations = await db.participations.findByCompetition(
+          competition._id!.toString()
+        );
+        acceptedParticipants = participations.filter(
+          (p) => p.status === "APPROVED"
+        ).length;
+      } catch (error) {
+        console.warn("⚠️ Impossible de compter les participants:", error);
+      }
+
+      const formattedCompetition = {
+        id: competition._id!.toString(),
+        title: competition.name,
+        name: competition.name,
+        description: competition.description || "",
+        category: competition.category || "Non spécifié",
+        status: competition.status,
+        startDateCompetition: competition.startDateCompetition,
+        endDateCompetition: competition.endDateCompetition,
+        registrationStartDate: competition.registrationStartDate,
+        registrationDeadline: competition.registrationDeadline,
+        maxParticipants: competition.maxParticipants || 0,
+        currentParticipants: acceptedParticipants,
+        venue: competition.venue || "",
+        city: competition.city || "",
+        country: competition.country || "",
+        address: competition.address || "",
+        commune: competition.commune || "",
+        uniqueCode: competition.name || "",
+        organizerName: organizer
+          ? `${organizer.firstName || ""} ${organizer.lastName || ""}`.trim() ||
+            "Organisateur"
+          : "Organisateur",
+        imageUrl: competition.imageUrl,
+        bannerUrl: competition.bannerUrl,
+        createdAt: competition.createdAt,
+        updatedAt: competition.updatedAt,
+      };
+
       console.log(
         "✅ Compétition trouvée:",
-        competition.title,
+        formattedCompetition.title,
         "- Statut:",
-        competition.status
+        formattedCompetition.status
       );
 
       return NextResponse.json({
-        competitions: [competition],
+        competitions: [formattedCompetition],
         total: 1,
       });
     }
@@ -86,9 +143,53 @@ export async function GET(request: NextRequest) {
         session.user.id
       );
 
+      const formattedCompetitions = await Promise.all(
+        competitions.map(async (competition: any) => {
+          let acceptedParticipants = 0;
+          try {
+            const participations = await db.participations.findByCompetition(
+              competition.id
+            );
+            acceptedParticipants = participations.filter(
+              (p) => p.status === "APPROVED"
+            ).length;
+          } catch (error) {
+            console.warn(
+              "⚠️ Impossible de compter les participants pour",
+              competition.id
+            );
+          }
+
+          return {
+            id: competition.id,
+            title: competition.name,
+            name: competition.name,
+            description: competition.description || "",
+            category: competition.category || "Non spécifié",
+            status: competition.status,
+            startDateCompetition: competition.startDateCompetition,
+            endDateCompetition: competition.endDateCompetition,
+            registrationStartDate: competition.registrationStartDate,
+            registrationDeadline: competition.registrationDeadline,
+            maxParticipants: competition.maxParticipants || 0,
+            currentParticipants: acceptedParticipants,
+            venue: competition.venue || "",
+            city: competition.city || "",
+            country: competition.country || "",
+            address: competition.address || "",
+            commune: competition.commune || "",
+            uniqueCode: competition.name || "",
+            imageUrl: competition.imageUrl,
+            bannerUrl: competition.bannerUrl,
+            createdAt: competition.createdAt,
+            updatedAt: competition.updatedAt,
+          };
+        })
+      );
+
       return NextResponse.json({
-        competitions,
-        total: competitions.length,
+        competitions: formattedCompetitions,
+        total: formattedCompetitions.length,
       });
     }
 
@@ -96,8 +197,67 @@ export async function GET(request: NextRequest) {
     const { competitions, total } =
       await db.competitions.findPublicCompetitions({});
 
+    const formattedCompetitions = await Promise.all(
+      competitions.map(async (competition: any) => {
+        let organizer = null;
+        let acceptedParticipants = 0;
+
+        try {
+          organizer = await db.users.findById(competition.organizerId);
+        } catch (error) {
+          console.warn(
+            "⚠️ Impossible de récupérer l'organisateur pour",
+            competition.id
+          );
+        }
+
+        try {
+          const participations = await db.participations.findByCompetition(
+            competition.id
+          );
+          acceptedParticipants = participations.filter(
+            (p) => p.status === "APPROVED"
+          ).length;
+        } catch (error) {
+          console.warn(
+            "⚠️ Impossible de compter les participants pour",
+            competition.id
+          );
+        }
+
+        return {
+          id: competition.id,
+          title: competition.name,
+          name: competition.name,
+          description: competition.description || "",
+          category: competition.category || "Non spécifié",
+          status: competition.status,
+          startDate: competition.startDate,
+          endDate: competition.endDate,
+          registrationDeadline: competition.registrationDeadline,
+          maxParticipants: competition.maxParticipants || 0,
+          currentParticipants: acceptedParticipants,
+          venue: competition.venue || "",
+          city: competition.city || "",
+          country: competition.country || "",
+          address: competition.address || "",
+          commune: competition.commune || "",
+          uniqueCode: competition.name || "",
+          organizerName: organizer
+            ? `${organizer.firstName || ""} ${
+                organizer.lastName || ""
+              }`.trim() || "Organisateur"
+            : "Organisateur",
+          imageUrl: competition.imageUrl,
+          bannerUrl: competition.bannerUrl,
+          createdAt: competition.createdAt,
+          updatedAt: competition.updatedAt,
+        };
+      })
+    );
+
     return NextResponse.json({
-      competitions,
+      competitions: formattedCompetitions,
       total,
     });
   } catch (error) {
@@ -174,9 +334,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validation des dates
+    const start = new Date(startDate);
+    const end = endDate ? new Date(endDate) : null;
+    const regDeadline = registrationDeadline
+      ? new Date(registrationDeadline)
+      : null;
+
+    if (isNaN(start.getTime())) {
+      return NextResponse.json(
+        { error: "Date de début invalide" },
+        { status: 400 }
+      );
+    }
+
+    if (end && (isNaN(end.getTime()) || end <= start)) {
+      return NextResponse.json(
+        { error: "La date de fin doit être après la date de début" },
+        { status: 400 }
+      );
+    }
+
+    if (regDeadline && (isNaN(regDeadline.getTime()) || regDeadline >= start)) {
+      return NextResponse.json(
+        {
+          error:
+            "La date limite d'inscription doit être avant la date de début",
+        },
+        { status: 400 }
+      );
+    }
+
     // Upload des images vers Vercel Blob
-    let imageUrl: string | null = null;
-    let bannerUrl: string | null = null;
+    let imageUrl: string | undefined = undefined;
+    let bannerUrl: string | undefined = undefined;
 
     try {
       if (image && image instanceof File && image.size > 0) {
@@ -195,51 +386,87 @@ export async function POST(request: NextRequest) {
       // Continuer sans les images plutôt que d'échouer complètement
     }
 
-    // Créer la compétition avec le service MongoDB
-    const competition = await db.competitions.create({
-      title,
+    // Préparer les données pour la création
+    const competitionData = {
+      name: title,
       description: description || "",
-      category,
-      status: status || "DRAFT",
-      startDate: new Date(startDate),
-      endDate: endDate ? new Date(endDate) : null,
+      category: category as any,
+      status: (status || "DRAFT") as any,
+      startDate: start,
+      endDate: end || undefined,
       registrationStartDate: registrationStartDate
         ? new Date(registrationStartDate)
         : new Date(),
-      registrationDeadline: registrationDeadline
-        ? new Date(registrationDeadline)
-        : new Date(new Date(startDate).getTime() - 24 * 60 * 60 * 1000), // 1 jour avant par défaut
+      registrationDeadline:
+        regDeadline || new Date(start.getTime() - 24 * 60 * 60 * 1000),
       maxParticipants: Number.parseInt(maxParticipants) || 50,
       venue,
-      address: address || "",
       city: city || "",
-      commune: commune || "",
       country: country || "",
+      commune: commune || "",
+      address: address || "",
       imageUrl,
       bannerUrl,
-      rules: Array.isArray(rules) ? rules : rules ? [rules] : [],
-      prizes: Array.isArray(prizes) ? prizes : prizes ? [prizes] : [],
+      rules: Array.isArray(rules) ? rules.join("\n") : rules || "",
+      prizes: Array.isArray(prizes) ? prizes.join("\n") : prizes || "",
       isPublic: Boolean(isPublic),
-      organizerId: session.user.id,
-    });
+      organizerId: new ObjectId(session.user.id),
+    };
+
+    // Créer la compétition avec le service MongoDB
+    const competition = await db.competitions.create(competitionData);
+
+    if (!competition) {
+      throw new Error("Échec de la création de la compétition");
+    }
 
     console.log(
       "✅ Compétition créée avec succès:",
-      competition.id,
-      "- Code:",
-      competition.uniqueCode
+      competition._id?.toString()
     );
     console.log("🖼️ Images:", { imageUrl, bannerUrl });
 
+    // Formater la réponse
+    const formattedCompetition = {
+      id: competition._id!.toString(),
+      title: competition.name,
+      name: competition.name,
+      description: competition.description || "",
+      category: competition.category,
+      status: competition.status,
+      startDateCompetition: competition.startDateCompetition,
+      endDateCompetition: competition.endDateCompetition,
+      registrationStartDate: competition.registrationStartDate,
+      registrationDeadline: competition.registrationDeadline,
+      maxParticipants: competition.maxParticipants,
+      venue: competition.venue,
+      city: competition.city,
+      country: competition.country,
+      imageUrl: competition.imageUrl,
+      bannerUrl: competition.bannerUrl,
+      rules: competition.rules,
+      prizes: competition.prizes,
+      isPublic: competition.isPublic,
+      organizerId: competition.organizerId.toString(),
+      uniqueCode: competition.name,
+      currentParticipants: 0,
+      createdAt: competition.createdAt,
+      updatedAt: competition.updatedAt,
+    };
+
     return NextResponse.json({
       success: true,
-      competition,
+      competition: formattedCompetition,
       message: "Compétition créée avec succès",
     });
   } catch (error) {
     console.error("❌ Erreur lors de la création de la compétition:", error);
+    const errorMessage =
+      error instanceof Error ? error.message : "Erreur inconnue";
     return NextResponse.json(
-      { error: "Erreur lors de la création de la compétition" },
+      {
+        error: `Erreur lors de la création de la compétition: ${errorMessage}`,
+      },
       { status: 500 }
     );
   }

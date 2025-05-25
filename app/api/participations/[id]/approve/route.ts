@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/database-service";
+import { ObjectId } from "mongodb";
 
 export async function POST(
   request: NextRequest,
@@ -22,7 +23,7 @@ export async function POST(
 
     const { id: participationId } = await params;
 
-    if (!participationId) {
+    if (!participationId || !ObjectId.isValid(participationId)) {
       return NextResponse.json(
         { error: "ID de participation invalide" },
         { status: 400 }
@@ -43,7 +44,7 @@ export async function POST(
 
     // Récupérer la compétition
     const competition = await db.competitions.findById(
-      participation.competitionId
+      participation.competitionId.toString()
     );
 
     if (!competition) {
@@ -53,8 +54,20 @@ export async function POST(
       );
     }
 
+    // Récupérer le participant
+    const participant = await db.users.findById(
+      participation.participantId.toString()
+    );
+
+    if (!participant) {
+      return NextResponse.json(
+        { error: "Participant non trouvé" },
+        { status: 404 }
+      );
+    }
+
     // Vérifier que l'organisateur est bien le propriétaire de la compétition
-    if (competition.organizerId !== session.user.id) {
+    if (competition.organizerId.toString() !== session.user.id) {
       return NextResponse.json(
         { error: "Vous n'êtes pas autorisé à approuver cette participation" },
         { status: 403 }
@@ -79,9 +92,12 @@ export async function POST(
 
     // Vérifier le nombre maximum de participants si défini
     if (competition.maxParticipants) {
-      const approvedCount = await db.participations.countAcceptedByCompetition(
-        competition.id
+      const acceptedParticipations = await db.participations.findByCompetition(
+        competition._id!.toString()
       );
+      const approvedCount = acceptedParticipations.filter(
+        (p) => p.status === "APPROVED"
+      ).length;
 
       if (approvedCount >= competition.maxParticipants) {
         return NextResponse.json(
@@ -98,38 +114,69 @@ export async function POST(
     const updatedParticipation = await db.participations.updateById(
       participationId,
       {
-        status: "ACCEPTED",
-        responseMessage: "Participation approuvée",
+        status: "APPROVED" as any,
+        approvalDate: new Date(),
       }
     );
 
     console.log("✅ Participation approuvée:", participationId);
 
     // Créer une notification pour le participant
-    const participant = await db.users.findById(participation.participantId);
+    try {
+      await db.notifications.create({
+        userId: new ObjectId(participation.participantId.toString()),
+        type: "SUCCESS" as any,
+        category: "PARTICIPATION" as any,
+        title: "Participation approuvée",
+        message: `Votre demande de participation à "${competition.name}" a été approuvée !`,
+        actionUrl: `/participant/competitions/${competition._id!.toString()}`,
+        isRead: false,
+      });
 
-    await db.notifications.create({
-      userId: participation.participantId,
-      type: "PARTICIPATION_APPROVED",
-      title: "Participation approuvée",
-      message: `Votre demande de participation à "${competition.title}" a été approuvée !`,
-      link: `/participant/competitions/${competition.id}`,
-    });
+      console.log("✅ Notification envoyée au participant");
+    } catch (notificationError) {
+      console.error(
+        "⚠️ Erreur lors de l'envoi de la notification:",
+        notificationError
+      );
+      // Continue même si la notification échoue
+    }
 
-    console.log("✅ Notification envoyée au participant");
+    // Préparer la réponse avec les données enrichies
+    const participantName =
+      `${participant.firstName || ""} ${participant.lastName || ""}`.trim() ||
+      "Participant";
 
     return NextResponse.json({
       success: true,
       message: "Participation approuvée avec succès",
-      participation: updatedParticipation,
+      participation: {
+        id: participationId,
+        status: "APPROVED",
+        competitionId: competition._id!.toString(),
+        competitionName: competition.name,
+        participantId: participant._id!.toString(),
+        participantName,
+        participantEmail: participant.email,
+        applicationDate:
+          participation.applicationDate || participation.createdAt,
+        approvalDate: new Date(),
+        updatedAt: new Date(),
+      },
     });
   } catch (error) {
     console.error(
       "❌ Erreur lors de l'approbation de la participation:",
       error
     );
+    const errorMessage =
+      error instanceof Error ? error.message : "Erreur inconnue";
     return NextResponse.json(
-      { error: "Erreur lors de l'approbation de la participation" },
+      {
+        error: "Erreur lors de l'approbation de la participation",
+        details:
+          process.env.NODE_ENV === "development" ? errorMessage : undefined,
+      },
       { status: 500 }
     );
   }

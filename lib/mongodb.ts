@@ -1,7 +1,7 @@
 import { MongoClient, ObjectId } from "mongodb";
 
 // Récupérer l'URL de connexion MongoDB depuis les variables d'environnement
-const uri = process.env.DATABASE_URL || "";
+const uri = process.env.DATABASE_URL || process.env.MONGODB_URL || "";
 
 // Créer un client MongoDB
 let client: MongoClient;

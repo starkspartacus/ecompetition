@@ -163,6 +163,9 @@ async function seedDatabase() {
         isPublic: true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        address: "123 Rue de la Paix, Lyon, France",
+        imageUrl: "https://via.placeholder.com/150",
+        bannerUrl: "https://via.placeholder.com/300",
       };
 
       try {

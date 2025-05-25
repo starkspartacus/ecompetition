@@ -526,7 +526,9 @@ export default function OrganizerDashboard() {
                   ) : (
                     <div className="space-y-4">
                       {filteredCompetitions.map((competition) => {
-                        const config = statusConfig[competition.status];
+                        const config =
+                          statusConfig[competition.status] ||
+                          statusConfig.DRAFT;
                         const StatusIcon = config.icon;
                         const progressPercentage = getProgressPercentage(
                           competition.participants,

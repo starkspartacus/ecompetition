@@ -108,7 +108,7 @@ importers:
         specifier: ^6.0.2
         version: 6.0.2(express@5.1.0)
       '@vercel/blob':
-        specifier: ^1.0.2
+        specifier: ^1.1.1
         version: 1.1.1
       autoprefixer:
         specifier: ^10.4.21
@@ -144,7 +144,7 @@ importers:
         specifier: ^7.5.0
         version: 7.5.0(express@5.1.0)
       framer-motion:
-        specifier: ^12.12.1
+        specifier: ^12.12.2
         version: 12.12.2(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       input-otp:
         specifier: 1.4.1
@@ -214,13 +214,13 @@ importers:
         version: 0.9.9(@types/react-dom@19.1.5(@types/react@19.1.5))(@types/react@19.1.5)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       zod:
         specifier: latest
-        version: 3.25.23
+        version: 3.25.28
     devDependencies:
       '@types/node':
-        specifier: ^22.15.19
+        specifier: ^22.15.21
         version: 22.15.21
       '@types/react':
-        specifier: ^19.1.4
+        specifier: ^19.1.5
         version: 19.1.5
       '@types/react-dom':
         specifier: ^19.1.5
@@ -2279,8 +2279,8 @@ packages:
     peerDependencies:
       preact: '>=10'
 
-  preact@10.26.6:
-    resolution: {integrity: sha512-5SRRBinwpwkaD+OqlBDeITlRgvd8I8QlxHJw9AxSdMNV6O+LodN9nUyYGpSF7sadHjs6RzeFShMexC6DbtWr9g==}
+  preact@10.26.7:
+    resolution: {integrity: sha512-43xS+QYc1X1IPbw03faSgY6I6OYWcLrJRv3hU0+qMOfh/XCHcP0MX2CVjNARYR2cC/guu975sta4OcjlczxD7g==}
 
   pretty-format@3.8.0:
     resolution: {integrity: sha512-WuxUnVtlWL1OfZFQFuqvnvs6MiAGk9UNsBostyBOB0Is9wb5uRESevA6rnl/rkksXaGX3GzZhPup5d6Vp1nFew==}
@@ -2820,8 +2820,8 @@ packages:
     resolution: {integrity: sha512-Ux4ygGWsu2c7isFWe8Yu1YluJmqVhxqK2cLXNQA5AcC3QfbGNpM7fu0Y8b/z16pXLnFxZYvWhd3fhBY9DLmC6Q==}
     engines: {node: '>=6'}
 
-  zod@3.25.23:
-    resolution: {integrity: sha512-Od2bdMosahjSrSgJtakrwjMDb1zM1A3VIHCPGveZt/3/wlrTWBya2lmEh2OYe4OIu8mPTmmr0gnLHIWQXdtWBg==}
+  zod@3.25.28:
+    resolution: {integrity: sha512-/nt/67WYKnr5by3YS7LroZJbtcCBurDKKPBPWWzaxvVCGuG/NOsiKkrjoOhI8mJ+SQUXEbUzeB3S+6XDUEEj7Q==}
 
 snapshots:
 
@@ -4603,8 +4603,8 @@ snapshots:
       next: 15.2.4(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       oauth: 0.9.15
       openid-client: 5.7.1
-      preact: 10.26.6
-      preact-render-to-string: 5.2.6(preact@10.26.6)
+      preact: 10.26.7
+      preact-render-to-string: 5.2.6(preact@10.26.7)
       react: 19.1.0
       react-dom: 19.1.0(react@19.1.0)
       uuid: 8.3.2
@@ -4747,12 +4747,12 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  preact-render-to-string@5.2.6(preact@10.26.6):
+  preact-render-to-string@5.2.6(preact@10.26.7):
     dependencies:
-      preact: 10.26.6
+      preact: 10.26.7
       pretty-format: 3.8.0
 
-  preact@10.26.6: {}
+  preact@10.26.7: {}
 
   pretty-format@3.8.0: {}
 
@@ -5363,4 +5363,4 @@ snapshots:
 
   yn@3.1.1: {}
 
-  zod@3.25.23: {}
+  zod@3.25.28: {}

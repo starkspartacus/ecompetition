@@ -1,12 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getDb } from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { db } from "@/lib/database-service";
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string; playerId: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -21,63 +20,34 @@ export async function PUT(
       );
     }
 
-    const { id: playerId } = await params;
+    const { id: teamId, playerId } = await params;
     const body = await request.json();
-    const { name, age, position, number, photoUrl } = body;
-
-    const db = await getDb();
 
     // Récupérer le joueur et vérifier les autorisations
-    const player = await db
-      .collection("Player")
-      .findOne({ _id: new ObjectId(playerId) });
+    const player = await db.players.findById(playerId);
 
     if (!player) {
       return NextResponse.json({ error: "Joueur non trouvé" }, { status: 404 });
     }
 
-    const team = await db
-      .collection("Team")
-      .findOne({ _id: new ObjectId(player.teamId) });
+    const team = await db.teams.findById(player.teamId.toString());
 
-    if (!team || team.ownerId.toString() !== session.user.id) {
+    if (!team || team.captainId.toString() !== session.user.id) {
       return NextResponse.json(
         { error: "Vous n'êtes pas autorisé à modifier ce joueur" },
         { status: 403 }
       );
     }
 
-    // Vérifier que le nouveau numéro n'est pas déjà pris (si changé)
-    if (number && number !== player.number) {
-      const numberExists = await db.collection("Player").findOne({
-        teamId: player.teamId,
-        number: Number.parseInt(number),
-        _id: { $ne: new ObjectId(playerId) },
-      });
-
-      if (numberExists) {
-        return NextResponse.json(
-          { error: "Ce numéro est déjà pris dans cette équipe" },
-          { status: 400 }
-        );
-      }
-    }
-
     // Mettre à jour le joueur
-    const updateData: any = {
-      updatedAt: new Date(),
-    };
+    const updatedPlayer = await db.players.updateById(playerId, body);
 
-    if (name) updateData.name = name;
-    if (age) updateData.age = Number.parseInt(age);
-    if (position !== undefined) updateData.position = position;
-    if (number !== undefined)
-      updateData.number = number ? Number.parseInt(number) : null;
-    if (photoUrl !== undefined) updateData.photoUrl = photoUrl;
-
-    await db
-      .collection("Player")
-      .updateOne({ _id: new ObjectId(playerId) }, { $set: updateData });
+    if (!updatedPlayer) {
+      return NextResponse.json(
+        { error: "Erreur lors de la mise à jour" },
+        { status: 500 }
+      );
+    }
 
     console.log("✅ Joueur mis à jour:", playerId);
 
@@ -96,7 +66,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string; playerId: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -111,24 +81,18 @@ export async function DELETE(
       );
     }
 
-    const { id: playerId } = await params;
-
-    const db = await getDb();
+    const { id: teamId, playerId } = await params;
 
     // Récupérer le joueur et vérifier les autorisations
-    const player = await db
-      .collection("Player")
-      .findOne({ _id: new ObjectId(playerId) });
+    const player = await db.players.findById(playerId);
 
     if (!player) {
       return NextResponse.json({ error: "Joueur non trouvé" }, { status: 404 });
     }
 
-    const team = await db
-      .collection("Team")
-      .findOne({ _id: new ObjectId(player.teamId) });
+    const team = await db.teams.findById(player.teamId.toString());
 
-    if (!team || team.ownerId.toString() !== session.user.id) {
+    if (!team || team.captainId.toString() !== session.user.id) {
       return NextResponse.json(
         { error: "Vous n'êtes pas autorisé à supprimer ce joueur" },
         { status: 403 }
@@ -136,7 +100,14 @@ export async function DELETE(
     }
 
     // Supprimer le joueur
-    await db.collection("Player").deleteOne({ _id: new ObjectId(playerId) });
+    const success = await db.players.deleteById(playerId);
+
+    if (!success) {
+      return NextResponse.json(
+        { error: "Erreur lors de la suppression" },
+        { status: 500 }
+      );
+    }
 
     console.log("✅ Joueur supprimé:", playerId);
 

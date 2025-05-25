@@ -311,3 +311,85 @@ export async function verifyPassword(
     return null;
   }
 }
+
+export async function normalizeUserData(): Promise<{ count: number }> {
+  try {
+    console.log("🔄 Début de la normalisation des données utilisateur");
+
+    // Récupérer tous les utilisateurs
+    const users = await userModel.findMany();
+
+    if (!users || users.length === 0) {
+      console.log("ℹ️ Aucun utilisateur trouvé à normaliser");
+      return { count: 0 };
+    }
+
+    let normalizedCount = 0;
+
+    for (const user of users) {
+      let needsUpdate = false;
+      const updateData: Partial<UserDocument> = {};
+
+      // Normaliser le prénom et nom (première lettre en majuscule)
+      if (
+        user.firstName &&
+        user.firstName !==
+          user.firstName.charAt(0).toUpperCase() +
+            user.firstName.slice(1).toLowerCase()
+      ) {
+        updateData.firstName =
+          user.firstName.charAt(0).toUpperCase() +
+          user.firstName.slice(1).toLowerCase();
+        needsUpdate = true;
+      }
+
+      if (
+        user.lastName &&
+        user.lastName !==
+          user.lastName.charAt(0).toUpperCase() +
+            user.lastName.slice(1).toLowerCase()
+      ) {
+        updateData.lastName =
+          user.lastName.charAt(0).toUpperCase() +
+          user.lastName.slice(1).toLowerCase();
+        needsUpdate = true;
+      }
+
+      // Normaliser l'email (en minuscules)
+      if (user.email && user.email !== user.email.toLowerCase()) {
+        updateData.email = user.email.toLowerCase();
+        needsUpdate = true;
+      }
+
+      // Normaliser le numéro de téléphone (supprimer les espaces)
+      if (user.phoneNumber && user.phoneNumber.includes(" ")) {
+        updateData.phoneNumber = user.phoneNumber.replace(/\s+/g, "");
+        needsUpdate = true;
+      }
+
+      // Vérifier le rôle par défaut
+      if (!user.role) {
+        updateData.role = "PARTICIPANT";
+        needsUpdate = true;
+      }
+
+      // Mettre à jour si nécessaire
+      if (needsUpdate && user._id) {
+        await userModel.updateById(user._id.toString(), updateData);
+        normalizedCount++;
+        console.log(`✅ Utilisateur normalisé: ${user.email}`);
+      }
+    }
+
+    console.log(
+      `🎉 Normalisation terminée: ${normalizedCount} utilisateurs mis à jour`
+    );
+    return { count: normalizedCount };
+  } catch (error) {
+    console.error(
+      "❌ Erreur lors de la normalisation des données utilisateur:",
+      error
+    );
+    throw new Error("Erreur lors de la normalisation des données utilisateur");
+  }
+}

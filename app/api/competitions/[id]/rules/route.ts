@@ -28,7 +28,7 @@ export async function PUT(
     }
 
     if (
-      competition.organizerId !== session.user.id &&
+      competition.organizerId.toString() !== session.user.id &&
       session.user.role !== "ADMIN"
     ) {
       return NextResponse.json(

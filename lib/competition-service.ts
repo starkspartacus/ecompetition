@@ -32,6 +32,8 @@ interface CreateCompetitionParams {
   tournamentFormat?: string;
   isPublic?: boolean;
   rules?: string[];
+  address?: string;
+  uniqueCode?: string;
 }
 
 // Interface pour les filtres de recherche
@@ -79,16 +81,20 @@ export async function createCompetition(
       country: params.country,
       city: params.city,
       commune: params.commune || undefined,
-      startDate: params.startDate,
-      endDate: params.endDate,
+      startDateCompetition: params.startDate,
+      endDateCompetition: params.endDate,
+      registrationStartDate: params.registrationStartDate,
       registrationDeadline: params.registrationDeadline,
       maxParticipants: params.maxParticipants,
       minParticipants: 2,
       isPublic: params.isPublic !== undefined ? params.isPublic : true,
       requiresApproval: false,
-      venue: params.venue,
-      bannerImage: params.bannerUrl || undefined,
+      address: params.address,
+      imageUrl: params.imageUrl || undefined,
+      bannerUrl: params.bannerUrl || undefined,
       rules: params.rules?.join("\n") || "",
+      uniqueCode: uniqueCode,
+      venue: params.venue,
     };
 
     // Créer la compétition avec le modèle

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/database-service";
+import { ObjectId } from "mongodb";
 
 export async function POST(
   request: NextRequest,
@@ -22,7 +23,7 @@ export async function POST(
 
     const { id: participationId } = await params;
 
-    if (!participationId) {
+    if (!participationId || !ObjectId.isValid(participationId)) {
       return NextResponse.json(
         { error: "ID de participation invalide" },
         { status: 400 }
@@ -52,7 +53,7 @@ export async function POST(
 
     // Récupérer la compétition
     const competition = await db.competitions.findById(
-      participation.competitionId
+      participation.competitionId.toString()
     );
 
     if (!competition) {
@@ -62,8 +63,20 @@ export async function POST(
       );
     }
 
+    // Récupérer le participant
+    const participant = await db.users.findById(
+      participation.participantId.toString()
+    );
+
+    if (!participant) {
+      return NextResponse.json(
+        { error: "Participant non trouvé" },
+        { status: 404 }
+      );
+    }
+
     // Vérifier que l'organisateur est bien le propriétaire de la compétition
-    if (competition.organizerId !== session.user.id) {
+    if (competition.organizerId.toString() !== session.user.id) {
       return NextResponse.json(
         { error: "Vous n'êtes pas autorisé à rejeter cette participation" },
         { status: 403 }
@@ -82,33 +95,68 @@ export async function POST(
     const updatedParticipation = await db.participations.updateById(
       participationId,
       {
-        status: "REJECTED",
-        responseMessage: rejectionReason,
+        status: "REJECTED" as any,
+        rejectionReason: rejectionReason,
+        approvalDate: new Date(),
       }
     );
 
     console.log("❌ Participation rejetée:", participationId);
 
     // Créer une notification pour le participant
-    await db.notifications.create({
-      userId: participation.participantId,
-      type: "PARTICIPATION_REJECTED",
-      title: "Participation rejetée",
-      message: `Votre demande de participation à "${competition.title}" a été rejetée. Raison: ${rejectionReason}`,
-      link: `/participant/competitions/browse`,
-    });
+    try {
+      await db.notifications.create({
+        userId: new ObjectId(participation.participantId.toString()),
+        type: "ERROR" as any,
+        category: "PARTICIPATION" as any,
+        title: "Participation rejetée",
+        message: `Votre demande de participation à "${competition.name}" a été rejetée. Raison: ${rejectionReason}`,
+        actionUrl: `/participant/competitions/browse`,
+        isRead: false,
+      });
 
-    console.log("✅ Notification envoyée au participant");
+      console.log("✅ Notification envoyée au participant");
+    } catch (notificationError) {
+      console.error(
+        "⚠️ Erreur lors de l'envoi de la notification:",
+        notificationError
+      );
+      // Continue même si la notification échoue
+    }
+
+    // Préparer la réponse avec les données enrichies
+    const participantName =
+      `${participant.firstName || ""} ${participant.lastName || ""}`.trim() ||
+      "Participant";
 
     return NextResponse.json({
       success: true,
       message: "Participation rejetée avec succès",
-      participation: updatedParticipation,
+      participation: {
+        id: participationId,
+        status: "REJECTED",
+        competitionId: competition._id!.toString(),
+        competitionName: competition.name,
+        participantId: participant._id!.toString(),
+        participantName,
+        participantEmail: participant.email,
+        rejectionReason,
+        applicationDate:
+          participation.applicationDate || participation.createdAt,
+        approvalDate: new Date(),
+        updatedAt: new Date(),
+      },
     });
   } catch (error) {
     console.error("❌ Erreur lors du rejet de la participation:", error);
+    const errorMessage =
+      error instanceof Error ? error.message : "Erreur inconnue";
     return NextResponse.json(
-      { error: "Erreur lors du rejet de la participation" },
+      {
+        error: "Erreur lors du rejet de la participation",
+        details:
+          process.env.NODE_ENV === "development" ? errorMessage : undefined,
+      },
       { status: 500 }
     );
   }
